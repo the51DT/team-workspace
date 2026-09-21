@@ -299,16 +299,15 @@ if(typeof ResizeObserver!=='undefined'){
 }
 
 
-function roleName(role){return {admin:'관리자',editor:'편집자',viewer:'조회자'}[role]||role}
-function applyPermissions(){if(!currentUser)return;$('#logoutButton').hidden=!authToken;$$('[data-login]').forEach(el=>el.hidden=Boolean(authToken));$('#currentUser').textContent=currentUser.name+' · '+roleName(currentUser.role);$('#usersButton').hidden=currentUser.role!=='admin';const editable=canEdit();$('#workspacePage').classList.toggle('read-only',!editable);['newTask','carryOver','saveAll','deleteToggle'].forEach(id=>$('#'+id).disabled=!editable);render();}
+function roleName(role){return {admin:'관리자',editor:'편집자'}[role]||role}
+function applyPermissions(){if(!currentUser)return;$('#logoutButton').hidden=!authToken;$$('[data-login]').forEach(el=>el.hidden=Boolean(authToken));$('#currentUser').textContent=currentUser.name+(currentUser.role?' · '+roleName(currentUser.role):'');$('#usersButton').hidden=currentUser.role!=='admin';const editable=canEdit();$('#workspacePage').classList.toggle('read-only',!editable);['newTask','carryOver','saveAll','deleteToggle'].forEach(id=>$('#'+id).disabled=!editable);render();}
 function showAuthenticated(){$('#authPage').hidden=true;$('#homePage').hidden=false;}
 async function publicRequest(payload){const response=await trackedFetch(window.APPS_SCRIPT_URL,{method:'POST',cache:'no-store',headers:{'Content-Type':'text/plain;charset=utf-8'},body:JSON.stringify(payload),signal:AbortSignal.timeout(30000)});const result=await response.json();if(!result?.ok)throw new Error(result?.error||'요청에 실패했습니다.');return result;}
 const AUTH_USER_KEY='workflow-auth-user';
-function cachedAuthUser(){try{const user=JSON.parse(sessionStorage.getItem(AUTH_USER_KEY));return user&&['admin','editor','viewer'].includes(user.role)&&user.name?user:null;}catch{return null;}}
 function storeAuthUser(user){sessionStorage.setItem(AUTH_USER_KEY,JSON.stringify(user));}
 function clearAuthSession(){sessionStorage.removeItem('workflow-auth-token');sessionStorage.removeItem(AUTH_USER_KEY);authToken='';currentUser=null;}
 async function validateRestoredSession(){try{const result=await requestServer({action:'session'});currentUser=result.user;storeAuthUser(currentUser);applyPermissions();}catch{clearAuthSession();location.reload();}}
-const guestUser={name:'로그인 없이 조회 중',role:'viewer'};
+const guestUser={name:'로그인 없이 조회 중'};
 async function initAuth(){
  currentUser=guestUser;
  try{authToken=sessionStorage.getItem('workflow-auth-token')||'';}catch{}

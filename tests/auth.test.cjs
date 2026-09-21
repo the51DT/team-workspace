@@ -34,12 +34,10 @@ test('accounts enforce roles and editor saves create audit history',()=>{
  assert.equal(app.run('hasUsers()'),true);
  assert.throws(()=>app.run("setupAdmin({username:'other',password:'password1',name:'다른 관리자'})"));
  const admin=app.run("loginPayload({username:'admin',password:'password1'})");
- app.run("createUserPayload({username:'viewer',password:'password2',name:'조회자',role:'viewer'})");
+ assert.throws(()=>app.run("createUserPayload({username:'viewer',password:'password2',name:'조회자',role:'viewer'})"),/권한/);
  app.run("createUserPayload({username:'editor',password:'password3',name:'편집자',role:'editor'})");
- const viewer=app.run("loginPayload({username:'viewer',password:'password2'})");
  const editor=app.run("loginPayload({username:'editor',password:'password3'})");
  assert.equal(app.run(`requireSession(${JSON.stringify(admin.token)}).role`),'admin');
- assert.throws(()=>app.run(`requireRole(requireSession(${JSON.stringify(viewer.token)}),['admin','editor'])`));
  app.run(`savePayload([['9/21','','담당자','배정','','업무','','','']], 'cx', requireSession(${JSON.stringify(editor.token)}))`);
  app.run(`savePayload([['9/21','','담당자','진행중','','업무','','','']], 'cx', requireSession(${JSON.stringify(editor.token)}))`);
  const audit=app.run("loadAuditPayload('cx')");
@@ -80,4 +78,15 @@ test('GET exposes only workspace-scoped public reads and never performs mutation
  }
  assert.equal(get({action:'load',workspace:'unknown'}).ok,false);
  assert.equal(app.run('hasUsers()'),false);
+});
+
+
+test('retired account roles cannot log in or reuse existing sessions',()=>{
+ const app=harness();app.run("setupAdmin({username:'admin',password:'password1',name:'관리자'})");
+ app.run("createUserPayload({username:'legacy',password:'password2',name:'이전 계정',role:'editor'})");
+ const session=app.run("loginPayload({username:'legacy',password:'password2'})");
+ app.sheets.get('웹앱_계정').rows[2][2]='viewer';
+ assert.throws(()=>app.run("loginPayload({username:'legacy',password:'password2'})"));
+ assert.throws(()=>app.run('requireSession('+JSON.stringify(session.token)+')'));
+ assert.equal(app.run('listUsers().length'),1);
 });
