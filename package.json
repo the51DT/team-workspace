@@ -1,0 +1,9 @@
+{
+  "name": "cx-workflow",
+  "private": true,
+  "scripts": {
+    "start": "node server.cjs",
+    "import:cx": "node cx-store.cjs",
+    "test": "node --test tests/*.test.cjs"
+  }
+}

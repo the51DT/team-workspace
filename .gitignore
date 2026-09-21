@@ -1,0 +1,25 @@
+# Local task data, backups, and server logs
+/data/
+
+# Installed dependencies and test output
+node_modules/
+/coverage/
+/.nyc_output/
+
+# Local environment settings (keep example templates)
+.env
+.env.*
+!.env.example
+!.env.*.example
+
+# Logs and temporary files
+*.log
+*.tmp
+*.swp
+*.swo
+*~
+
+# Operating system metadata
+.DS_Store
+Thumbs.db
+Desktop.ini
