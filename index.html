@@ -16,9 +16,20 @@
         <p class="home-brand">▥ WORK<span>FLOW</span></p>
         <h1 id="authTitle">로그인</h1>
         <p id="authDescription">업무 관리 계정으로 로그인해 주세요.</p>
-        <label id="nameField" hidden>이름<input id="loginName" autocomplete="name" /></label>
-        <label>아이디<input id="loginUsername" autocomplete="username" required /></label>
-        <label>비밀번호<input id="loginPassword" type="password" autocomplete="current-password" minlength="8" required /></label>
+        <label id="nameField" hidden
+          >이름<input id="loginName" autocomplete="name"
+        /></label>
+        <label
+          >아이디<input id="loginUsername" autocomplete="username" required
+        /></label>
+        <label
+          >비밀번호<input
+            id="loginPassword"
+            type="password"
+            autocomplete="current-password"
+            minlength="8"
+            required
+        /></label>
         <button id="loginSubmit" type="submit">로그인</button>
         <p id="authError" role="alert"></p>
       </form>
@@ -72,8 +83,15 @@
             aria-label="서버에서 최신 업무 불러오기"
             title="서버에서 최신 업무 불러오기"
           >
-            ↻</button
-          ><div class="account-actions"><button id="historyButton" type="button">수정 이력</button><button id="usersButton" type="button" hidden>계정 관리</button><span id="currentUser"></span><button id="logoutButton" type="button">로그아웃</button></div><i>CX</i>
+            ↻
+          </button>
+          <div class="account-actions">
+            <button id="historyButton" type="button">수정 이력</button
+            ><button id="usersButton" type="button">계정 관리</button
+            ><span id="currentUser"></span
+            ><button id="logoutButton" type="button">로그아웃</button>
+          </div>
+          <i>CX</i>
         </header>
         <section>
           <article class="panel">
@@ -168,8 +186,41 @@
         </section>
       </main>
     </div>
-    <dialog id="usersDialog"><form method="dialog" class="dialog-card"><header><h2>계정 관리</h2><button value="cancel" aria-label="닫기">×</button></header><div id="userList"></div><h3>계정 추가</h3><label>이름<input id="newUserName" /></label><label>아이디<input id="newUsername" /></label><label>비밀번호<input id="newUserPassword" type="password" minlength="8" /></label><label>권한<select id="newUserRole"><option value="viewer">조회자</option><option value="editor">편집자</option><option value="admin">관리자</option></select></label><button id="createUserButton" type="button">계정 생성</button><p id="userError" role="alert"></p></form></dialog>
-    <dialog id="historyDialog"><form method="dialog" class="dialog-card history-card"><header><h2>수정 이력</h2><button value="cancel" aria-label="닫기">×</button></header><div id="historyList"></div></form></dialog>    <script src="config.js?v=20260921-17"></script>
-    <script src="app.js?v=20260921-3"></script>
+    <dialog id="usersDialog">
+      <form method="dialog" class="dialog-card">
+        <header>
+          <h2>계정 관리</h2>
+          <button value="cancel" aria-label="닫기">×</button>
+        </header>
+        <div id="userList"></div>
+        <h3>계정 추가</h3>
+        <label>이름<input id="newUserName" /></label
+        ><label>아이디<input id="newUsername" /></label
+        ><label
+          >비밀번호<input
+            id="newUserPassword"
+            type="password"
+            minlength="8" /></label
+        ><label
+          >권한<select id="newUserRole">
+            <option value="viewer">조회자</option>
+            <option value="editor">편집자</option>
+            <option value="admin">관리자</option>
+          </select></label
+        ><button id="createUserButton" type="button">계정 생성</button>
+        <p id="userError" role="alert"></p>
+      </form>
+    </dialog>
+    <dialog id="historyDialog">
+      <form method="dialog" class="dialog-card history-card">
+        <header>
+          <h2>수정 이력</h2>
+          <button value="cancel" aria-label="닫기">×</button>
+        </header>
+        <div id="historyList"></div>
+      </form>
+    </dialog>
+    <script src="config.js?v=20260921-17"></script>
+    <script src="app.js?v=20260921-4"></script>
   </body>
 </html>
