@@ -268,6 +268,26 @@ $$('[data-tab]').forEach(b=>b.onclick=()=>selectTab(b.dataset.tab));
 $('#newTask').onclick=addRow;
 $('#carryOver').onclick=carryOver;
 $('#saveAll').onclick=saveAll;
+function tableCsv(){
+ const table=$('#list table');
+ const rows=[...table.querySelectorAll('thead tr, tbody tr')].map(row=>
+  [...row.cells].map(cell=>{
+   const input=cell.querySelector('input:not([type="checkbox"]), select, textarea');
+   let value=input?input.value:(cell.innerText??cell.textContent??'');
+   if(cell.querySelector('input[type="checkbox"]'))value=registrationLabel(data[Number(row.dataset.index)]?.[0]||'');
+   return '"'+String(value).replace(/"/g,'""')+'"';
+  }).join(',')
+ );
+ return '\uFEFF'+rows.join('\r\n')+'\r\n';
+}
+function exportCsv(){
+ const blob=new Blob([tableCsv()],{type:'text/csv;charset=utf-8;'});
+ const url=URL.createObjectURL(blob),link=document.createElement('a');
+ link.href=url;link.download=workspaceNames[currentWorkspace]+'_업무_'+monthKey(selectedMonth)+'.csv';
+ document.body.appendChild(link);link.click();link.remove();
+ setTimeout(()=>URL.revokeObjectURL(url),1000);
+}
+$('#exportCsv').onclick=exportCsv;
 function updateDeleteButton(){
   const count=$$('.row-check:checked').length;
   $('#deleteToggle').textContent=deleteMode?(count?'삭제 ('+count+')':'삭제 취소'):'삭제';

@@ -305,3 +305,16 @@ test('cached list is visible while fresh server data is still pending and saving
  assert.match(page.element('#rows').innerHTML,/업무 제목/);assert.equal(page.element('#saveAll').disabled,true);
  resolve({ok:true,workspace:'cx',tasks:[task]});await page.ready;
 });
+
+
+test('CSV exports visible table values including controls, quotes, newlines and deletion-mode dates',async()=>{
+ const page=app(()=>({ok:true,tasks:[task]}));await page.ready;
+ page.run(`csvCell=(text,input=null,checkbox=false)=>({innerText:text,querySelector:s=>s==='input[type="checkbox"]'?(checkbox?{}:null):input});
+ document.querySelector=((original)=>selector=>selector==='#list table'?{querySelectorAll:()=>[
+ {cells:[csvCell('등록'),csvCell('RMS'),csvCell('작업자'),csvCell('비고')]},
+ {dataset:{index:'0'},cells:[csvCell('',null,true),csvCell('↗',{value:'00123'}),csvCell('전체 옵션',{value:'작업자 A'}),csvCell('쉼표, 따옴표 "내용"\\n다음 줄')]}
+ ]}:original(selector))(document.querySelector);`);
+ const csv=page.run('tableCsv()');
+ assert.ok(csv.startsWith('\uFEFF'));assert.match(csv,/"9\/19","00123","작업자 A"/);
+ assert.ok(csv.includes('"쉼표, 따옴표 ""내용""\n다음 줄"'));assert.ok(!csv.includes('↗'));
+});
