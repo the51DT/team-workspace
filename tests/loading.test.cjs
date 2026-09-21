@@ -36,6 +36,13 @@ test('load uses Apps Script tasks and maps nine columns without losing work hour
   assert.equal(page.requests[0].payload.action,'load');assert.equal(page.run('data[0][9]'),'1.5');
   assert.match(page.element('#rows').innerHTML,/업무 제목/);assert.equal(page.run('serverConnected'),true);
 });
+test('completed edits are saved automatically after the debounce',async()=>{
+ let saved;const page=app(p=>{if(p.action==='save'){saved=p.tasks;return {ok:true}}return {ok:true,tasks:[task]}});await page.ready;
+ page.run("document.getElementById=()=>true;currentUser={role:'editor'};remember(0,5,'자동 저장 업무')");
+ await new Promise(resolve=>setTimeout(resolve,850));
+ assert.equal(saved[0][5],'자동 저장 업무');
+ assert.match(page.element('#saveStatus').textContent,/자동 저장 완료/);
+});
 test('save sends the full nine-column task list and reload retrieves it',async()=>{
   let tasks=[task];const page=app(p=>{if(p.action==='save'){tasks=p.tasks;return {ok:true,updatedAt:'saved'}}return {ok:true,tasks}});await page.ready;
   page.run("remember(0,5,'수정 업무')");await page.run('saveAll()');
