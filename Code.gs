@@ -1,27 +1,28 @@
 const DATA_SHEETS = {cx:'웹앱_CX_업무데이터', enterprise:'웹앱_기업_업무데이터', aldot:'웹앱_알닷_업무데이터'};
 const WORKER_SHEETS = {cx:'웹앱_CX_작업자', enterprise:'웹앱_기업_작업자', aldot:'웹앱_알닷_작업자'};
+const AUTH_SHEET='웹앱_계정', SESSION_SHEET='웹앱_세션', AUDIT_SHEET='웹앱_수정이력';
+const ROLES=['admin','editor','viewer'], SESSION_HOURS=12;
 function workspaceKey(value){const key=value||'cx';if(!Object.prototype.hasOwnProperty.call(DATA_SHEETS,key))throw new Error('지원하지 않는 업무 공간입니다.');return key}
 
-function doGet(e) {
-  try {
-    return jsonResponse(loadPayload(e && e.parameter && e.parameter.workspace));
-  } catch (error) {
-    return jsonResponse({ ok: false, error: error.message });
-  }
-}
+function doGet() { return jsonResponse({ok:false,error:'POST 로그인 요청을 사용해 주세요.'}); }
 
 function doPost(e) {
   try {
-    const request = JSON.parse((e && e.postData && e.postData.contents) || '{}');
-    if (request.action === 'load') return jsonResponse(loadPayload(request.workspace));
-    if (request.action === 'save') return jsonResponse(savePayload(request.tasks, request.workspace));
-    if (request.action === 'saveWorkers') return jsonResponse(saveWorkersPayload(request.workers, request.workspace));
-    return jsonResponse({ ok: false, error: '지원하지 않는 요청입니다.' });
-  } catch (error) {
-    return jsonResponse({ ok: false, error: error.message });
-  }
+    const request=JSON.parse((e&&e.postData&&e.postData.contents)||'{}');
+    if(request.action==='authStatus')return jsonResponse({ok:true,setupRequired:!hasUsers()});
+    if(request.action==='setupAdmin')return jsonResponse(setupAdmin(request));
+    if(request.action==='login')return jsonResponse(loginPayload(request));
+    const user=requireSession(request.token);
+    if(request.action==='logout')return jsonResponse(logoutPayload(request.token));
+    if(request.action==='load')return jsonResponse(Object.assign(loadPayload(request.workspace),{user:publicUser(user)}));
+    if(request.action==='save'){requireRole(user,['admin','editor']);return jsonResponse(savePayload(request.tasks,request.workspace,user));}
+    if(request.action==='saveWorkers'){requireRole(user,['admin']);return jsonResponse(saveWorkersPayload(request.workers,request.workspace));}
+    if(request.action==='listUsers'){requireRole(user,['admin']);return jsonResponse({ok:true,users:listUsers()});}
+    if(request.action==='createUser'){requireRole(user,['admin']);return jsonResponse(createUserPayload(request));}
+    if(request.action==='loadAudit')return jsonResponse(loadAuditPayload(request.workspace));
+    return jsonResponse({ok:false,error:'지원하지 않는 요청입니다.'});
+  }catch(error){return jsonResponse({ok:false,error:error.message});}
 }
-
 function loadPayload(workspace) {
   workspace=workspaceKey(workspace);
   const lock = LockService.getScriptLock();
@@ -86,7 +87,7 @@ function validateTasks(tasks) {
   }
 }
 
-function savePayload(tasks, workspace) {
+function savePayload(tasks, workspace, user) {
   workspace=workspaceKey(workspace);
   validateTasks(tasks);
   const json = JSON.stringify(tasks);
@@ -97,7 +98,10 @@ function savePayload(tasks, workspace) {
   lock.waitLock(10000);
   try {
     const updatedAt = new Date().toISOString();
-    getDataSheet(workspace).getRange('A2:B2').setValues([[json, updatedAt]]);
+    const dataSheet=getDataSheet(workspace),old=dataSheet.getRange('A2:B2').getValues()[0];
+    const previous=old[0]?JSON.parse(old[0]):[];
+    dataSheet.getRange('A2:B2').setValues([[json, updatedAt]]);
+    if(user)appendAudit(workspace,user,previous,tasks,updatedAt);
     SpreadsheetApp.flush();
     return { ok: true, workspace: workspace, updatedAt: updatedAt };
   } finally {
@@ -123,3 +127,25 @@ function jsonResponse(payload) {
   return ContentService.createTextOutput(JSON.stringify(payload))
     .setMimeType(ContentService.MimeType.JSON);
 }
+
+function hiddenSheet(name,headers){const book=SpreadsheetApp.getActiveSpreadsheet();if(!book)throw new Error('대상 스프레드시트에서 실행해 주세요.');let sheet=book.getSheetByName(name);if(!sheet){sheet=book.insertSheet(name);sheet.getRange(1,1,1,headers.length).setValues([headers]);sheet.hideSheet();}return sheet;}
+function authSheet(){return hiddenSheet(AUTH_SHEET,['아이디','이름','권한','Salt','Password Hash','활성','생성일']);}
+function sessionSheet(){return hiddenSheet(SESSION_SHEET,['Token','아이디','만료시각']);}
+function auditSheet(){return hiddenSheet(AUDIT_SHEET,['시각','아이디','이름','권한','워크스페이스','작업','업무','항목','변경 전','변경 후']);}
+function hasUsers(){return authSheet().getLastRow()>1;}
+function cleanUsername(v){const u=String(v||'').trim().toLowerCase();if(!/^[a-z0-9._-]{3,40}$/.test(u))throw new Error('아이디는 영문 소문자, 숫자, ., _, -로 3~40자여야 합니다.');return u;}
+function cleanPassword(v){const p=String(v||'');if(p.length<8||p.length>100)throw new Error('비밀번호는 8자 이상이어야 합니다.');return p;}
+function passwordHash(p,s){let v=s+':'+p;for(let i=0;i<2000;i++)v=Utilities.base64EncodeWebSafe(Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256,v,Utilities.Charset.UTF_8));return v;}
+function account(u,p,n,r){u=cleanUsername(u);p=cleanPassword(p);n=String(n||'').trim();if(!n)throw new Error('이름을 입력해 주세요.');if(ROLES.indexOf(r)<0)throw new Error('권한이 올바르지 않습니다.');const sh=authSheet(),rows=sh.getLastRow()>1?sh.getRange(2,1,sh.getLastRow()-1,7).getValues():[];if(rows.some(x=>String(x[0]).toLowerCase()===u))throw new Error('이미 존재하는 아이디입니다.');const salt=Utilities.getUuid();sh.appendRow([u,n,r,salt,passwordHash(p,salt),true,new Date().toISOString()]);return {username:u,name:n,role:r};}
+function setupAdmin(r){const lock=LockService.getScriptLock();lock.waitLock(10000);try{if(hasUsers())throw new Error('초기 관리자 설정이 완료되었습니다.');return {ok:true,user:account(r.username,r.password,r.name,'admin')};}finally{lock.releaseLock();}}
+function createUserPayload(r){return {ok:true,user:account(r.username,r.password,r.name,r.role)};}
+function findUser(u){const sh=authSheet();if(sh.getLastRow()<2)return null;const rows=sh.getRange(2,1,sh.getLastRow()-1,7).getValues();for(let row of rows)if(String(row[0]).toLowerCase()===u)return {username:String(row[0]),name:String(row[1]),role:String(row[2]),salt:String(row[3]),hash:String(row[4]),active:row[5]===true||String(row[5]).toLowerCase()==='true'};return null;}
+function publicUser(u){return {username:u.username,name:u.name,role:u.role};}
+function loginPayload(r){const u=cleanUsername(r.username),p=cleanPassword(r.password),user=findUser(u);if(!user||!user.active||passwordHash(p,user.salt)!==user.hash)throw new Error('아이디 또는 비밀번호가 올바르지 않습니다.');const token=Utilities.getUuid()+Utilities.getUuid().replace(/-/g,''),expires=new Date(Date.now()+SESSION_HOURS*3600000).toISOString();sessionSheet().appendRow([token,u,expires]);return {ok:true,token:token,user:publicUser(user),expiresAt:expires};}
+function requireSession(token){token=String(token||'');if(!token)throw new Error('로그인이 필요합니다.');const sh=sessionSheet();if(sh.getLastRow()<2)throw new Error('로그인이 만료되었습니다.');const rows=sh.getRange(2,1,sh.getLastRow()-1,3).getValues();for(let i=rows.length-1;i>=0;i--)if(String(rows[i][0])===token&&new Date(rows[i][2]).getTime()>Date.now()){const u=findUser(String(rows[i][1]).toLowerCase());if(u&&u.active)return u;}throw new Error('로그인이 만료되었습니다.');}
+function logoutPayload(token){const sh=sessionSheet();if(sh.getLastRow()>1){const rows=sh.getRange(2,1,sh.getLastRow()-1,3).getValues();for(let i=rows.length-1;i>=0;i--)if(String(rows[i][0])===String(token))sh.deleteRow(i+2);}return {ok:true};}
+function requireRole(u,a){if(a.indexOf(u.role)<0)throw new Error('이 작업을 수행할 권한이 없습니다.');}
+function listUsers(){const sh=authSheet();if(sh.getLastRow()<2)return [];return sh.getRange(2,1,sh.getLastRow()-1,7).getValues().map(r=>({username:String(r[0]),name:String(r[1]),role:String(r[2]),active:r[5]===true||String(r[5]).toLowerCase()==='true',createdAt:String(r[6]||'')}));}
+const AUDIT_FIELDS=['등록','RMS','작업자','단계','완료 & 반영일','업무제목','비고','진행시각','완료시각','실 작업시간','조정'];
+function appendAudit(ws,u,before,after,at){const rows=[],max=Math.max(before.length,after.length);for(let i=0;i<max;i++){const a=before[i],b=after[i],title=String((b||a||[])[5]||('업무 '+(i+1)));if(!a||!b){rows.push([at,u.username,u.name,u.role,ws,!a?'추가':'삭제',title,'전체',a?JSON.stringify(a):'',b?JSON.stringify(b):'']);continue;}for(let c=0;c<Math.max(a.length,b.length);c++){const x=String(a[c]??''),y=String(b[c]??'');if(x!==y)rows.push([at,u.username,u.name,u.role,ws,'수정',title,AUDIT_FIELDS[c]||('열 '+(c+1)),x,y]);}}if(rows.length){const sh=auditSheet();sh.getRange(sh.getLastRow()+1,1,rows.length,10).setValues(rows);}}
+function loadAuditPayload(ws){ws=workspaceKey(ws);const sh=auditSheet();if(sh.getLastRow()<2)return {ok:true,entries:[]};const n=Math.min(500,sh.getLastRow()-1),start=sh.getLastRow()-n+1;const values=sh.getRange(start,1,n,10).getDisplayValues().reverse().filter(r=>r[4]===ws);return {ok:true,entries:values.map(r=>({at:r[0],username:r[1],name:r[2],role:r[3],workspace:r[4],action:r[5],task:r[6],field:r[7],before:r[8],after:r[9]}))};}
