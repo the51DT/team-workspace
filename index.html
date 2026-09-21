@@ -8,9 +8,10 @@
       rel="stylesheet"
       href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard/dist/web/static/pretendard.css"
     />
-    <link rel="stylesheet" href="styles.css?v=20260921-5" />
+    <link rel="stylesheet" href="styles.css?v=20260921-7" />
   </head>
   <body>
+    <div id="loadingBar" class="loading-bar" role="progressbar" aria-label="불러오는 중" aria-hidden="true"><span></span></div>
     <div id="authPage" class="auth-page">
       <form id="authForm" class="auth-card">
         <p class="home-brand">▥ WORK<span>FLOW</span></p>
@@ -36,10 +37,7 @@
     </div>
     <div id="homePage" class="home-page" hidden>
       <div class="account-actions">
-        <button id="historyButton" type="button">수정 이력</button>
         <button id="usersButton" type="button">계정 관리</button>
-        <button id="logoutButton" type="button">로그아웃</button>
-        <span id="currentUser"></span>
       </div>
       <div class="home-content">
         <p class="home-brand">▥ WORK<span>FLOW</span></p>
@@ -91,6 +89,11 @@
           >
             ↻
           </button>
+          <div class="workspace-account-actions">
+            <button id="historyButton" type="button">수정 이력</button>
+            <button id="logoutButton" type="button">로그아웃</button>
+            <span id="currentUser"></span>
+          </div>
           <i>CX</i>
         </header>
         <section>
@@ -130,7 +133,13 @@
                   aria-label="업무 작성 및 저장"
                 >
                   <button id="newTask">＋ 새 업무</button>
-                  <button id="saveAll" disabled title="자동 저장 실패 시 즉시 다시 저장합니다.">저장</button>
+                  <button
+                    id="saveAll"
+                    disabled
+                    title="자동 저장 실패 시 즉시 다시 저장합니다."
+                  >
+                    저장
+                  </button>
                 </div>
               </div>
             </div>
@@ -147,6 +156,11 @@
                 </select></span
               >
             </div>
+            <div
+              id="workSummary"
+              class="work-summary"
+              aria-label="담당자별 작업시간"
+            ></div>
             <div id="list" class="table">
               <table>
                 <colgroup>
@@ -169,7 +183,7 @@
                     <th>완료 &amp; 반영일</th>
                     <th>업무제목</th>
                     <th>비고</th>
-                    <th>실 작업시간</th>
+                    <th>작업시간</th>
                     <th>조정</th>
                   </tr>
                 </thead>
@@ -221,6 +235,6 @@
       </form>
     </dialog>
     <script src="config.js?v=20260921-17"></script>
-    <script src="app.js?v=20260921-6"></script>
+    <script src="app.js?v=20260921-11"></script>
   </body>
 </html>

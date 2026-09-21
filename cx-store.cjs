@@ -4,7 +4,7 @@ const { createHash, randomUUID } = require('node:crypto');
 
 const spreadsheetId = '1QEgjN6IXs473j1oNuTt-5WM39CcihQNHfUN7Piyp6WI';
 const storePath = path.join(__dirname, 'data', 'cx.json');
-const columns = ['등록', 'RMS', '작업자', '단계', '완료 & 반영일', '업무제목', '비고', '업무 시작 시간', '업무 종료 시간', '실 작업시간', '조정'];
+const columns = ['등록', 'RMS', '작업자', '단계', '완료 & 반영일', '업무제목', '비고', '업무 시작 시간', '업무 종료 시간', '작업시간', '조정'];
 
 // CSV exports preserve mixed text/date cells that Visualization type inference drops.
 function parseCSV(text) {
@@ -37,7 +37,11 @@ function makeSnapshot(csv) {
   }
   const tasks = rawRows.slice(1).flatMap((row, index) => {
     if (!row.some(value => value.trim())) return [];
-    const values = columns.map(name => row[headers.indexOf(name)] ?? '');
+    const values = columns.map(name => {
+      const index = headers.indexOf(name);
+      const legacyIndex = name === '작업시간' ? headers.indexOf('실 작업시간') : -1;
+      return row[index >= 0 ? index : legacyIndex] ?? '';
+    });
     if (values[3] === '진행중') values[3] = '진행';
     return [{ sourceRow: index + 2, values }];
   });

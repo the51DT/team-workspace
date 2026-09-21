@@ -7,7 +7,7 @@ function app(handler,storage=new Map(),hash='#cx'){
   const location={hash,pathname:'/index.html',search:''};
   const navigate=(_state,_title,url)=>{location.hash=url.includes('#')?url.slice(url.indexOf('#')):''};
   const elements=new Map(),requests=[];
-  const element=id=>{if(!elements.has(id))elements.set(id,{value:['#worker','#status'].includes(id)?'all':'',innerHTML:'',textContent:'',addEventListener(){},setAttribute(){},focus(){}});return elements.get(id)};
+  const element=id=>{if(!elements.has(id))elements.set(id,{value:['#worker','#status'].includes(id)?'all':'',innerHTML:'',textContent:'',classList:{active:false,toggle(_name,on){this.active=on}},addEventListener(){},setAttribute(){},focus(){}});return elements.get(id)};
   const context=vm.createContext({window:{location,history:{pushState:navigate,replaceState:navigate},addEventListener(){},APPS_SCRIPT_URL:'https://example.test/exec',WORKERS:['작업자 A']},AbortSignal,console,
     fetch:async(url,options)=>{const payload=JSON.parse(options.body);requests.push({url,payload,headers:options.headers});const result=await handler(payload);return {ok:true,json:async()=>result}},
     localStorage:{getItem:key=>storage.get(key)??null,setItem:(key,value)=>storage.set(key,value),removeItem:key=>storage.delete(key)},alert(){},confirm:()=>true,requestAnimationFrame:fn=>fn(),setTimeout,
@@ -30,6 +30,13 @@ test('new tasks stay below existing tasks after consecutive saves and reload',as
   assert.deepEqual(tasks.map(row=>row[5]),['업무 제목','새 업무 1','새 업무 2']);
   await page.run('load()');
   assert.equal(page.run('data[2][5]'),'새 업무 2');
+});
+test('loading bar is active only while a server request is pending',async()=>{
+ let resolve;const pending=new Promise(done=>resolve=done);const page=app(()=>pending);
+ await new Promise(done=>setImmediate(done));
+ assert.equal(page.element('#loadingBar').classList.active,true);
+ resolve({ok:true,tasks:[task]});await page.ready;
+ assert.equal(page.element('#loadingBar').classList.active,false);
 });
 test('load uses Apps Script tasks and maps nine columns without losing work hours',async()=>{
   const page=app(()=>({ok:true,tasks:[task],updatedAt:'2026-09-19T00:00:00Z',holidayError:'key missing'}));await page.ready;
@@ -71,6 +78,19 @@ test('active tab excludes completed, held and carried-over tasks',async()=>{
  page.run("currentTab='active'");assert.equal(page.run('selected().length'),5);
  page.element('#worker').value='다른 작업자';assert.equal(page.run('selected().length'),0);
  page.element('#worker').value='all';page.run("currentTab='list'");assert.equal(page.run('selected().length'),8);
+});
+test('work summary groups filtered actual hours by worker',async()=>{
+ const first=[...task];first[2]='작업자 A';first[7]='1.234';
+ const second=[...task];second[2]='작업자 A';second[7]='2.5';
+ const third=[...task];third[2]='작업자 B';third[7]='4';
+ const page=app(()=>({ok:true,tasks:[first,second,third]}));await page.ready;
+ assert.match(page.element('#workSummary').innerHTML,/작업자 A/);
+ assert.match(page.element('#workSummary').innerHTML,/3\.734/);
+ assert.match(page.element('#workSummary').innerHTML,/작업자 B/);
+ assert.match(page.element('#workSummary').innerHTML,/4\.000/);
+ page.element('#worker').value='작업자 B';page.run('render()');
+ assert.doesNotMatch(page.element('#workSummary').innerHTML,/작업자 A/);
+ assert.match(page.element('#workSummary').innerHTML,/작업자 B/);
 });
 test('tab selection refreshes the rendered rows immediately',async()=>{
  const completed=[...task];completed[3]='완료';completed[5]='완료 업무';
