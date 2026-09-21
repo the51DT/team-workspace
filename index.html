@@ -8,7 +8,7 @@
       rel="stylesheet"
       href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard/dist/web/static/pretendard.css"
     />
-    <link rel="stylesheet" href="styles.css?v=20260921-3" />
+    <link rel="stylesheet" href="styles.css?v=20260921-5" />
   </head>
   <body>
     <div id="authPage" class="auth-page">
@@ -35,6 +35,12 @@
       </form>
     </div>
     <div id="homePage" class="home-page" hidden>
+      <div class="account-actions">
+        <button id="historyButton" type="button">수정 이력</button>
+        <button id="usersButton" type="button">계정 관리</button>
+        <button id="logoutButton" type="button">로그아웃</button>
+        <span id="currentUser"></span>
+      </div>
       <div class="home-content">
         <p class="home-brand">▥ WORK<span>FLOW</span></p>
         <h1>업무 관리</h1>
@@ -85,12 +91,6 @@
           >
             ↻
           </button>
-          <div class="account-actions">
-            <button id="historyButton" type="button">수정 이력</button
-            ><button id="usersButton" type="button">계정 관리</button
-            ><span id="currentUser"></span
-            ><button id="logoutButton" type="button">로그아웃</button>
-          </div>
           <i>CX</i>
         </header>
         <section>
