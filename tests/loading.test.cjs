@@ -286,3 +286,22 @@ test('old GET deployment gives actionable update instructions and keeps saving d
  assert.match(page.element('#saveStatus').textContent,/Code.gs.*새 버전/);
  assert.equal(page.element('#saveAll').disabled,true);assert.equal(page.requests.length,1);
 });
+
+
+test('opening login is immediate and login submits without an auth status request',async()=>{
+ const page=app(()=>({ok:true,setupRequired:true}),new Map(),'',true);await page.ready;
+ page.run('openLogin()');assert.equal(page.requests.length,0);assert.equal(page.element('#loginSubmit').disabled,false);
+ page.element('#loginUsername').value='admin';page.element('#loginPassword').value='password1';
+ await page.element('#authForm').onsubmit({preventDefault(){}});
+ assert.equal(page.requests.length,1);assert.equal(page.requests[0].payload.action,'login');
+ assert.equal(page.element('#nameField').hidden,false);assert.equal(page.element('#loginSubmit').textContent,'관리자 생성');
+});
+
+test('cached list is visible while fresh server data is still pending and saving stays disabled',async()=>{
+ const storage=new Map([['workflow-snapshot-v1:https://example.test/exec:cx',JSON.stringify({tasks:[task]})]]);
+ let resolve;const pending=new Promise(done=>resolve=done);
+ const page=app(()=>pending,storage,'#cx',true);
+ await new Promise(done=>setImmediate(done));
+ assert.match(page.element('#rows').innerHTML,/업무 제목/);assert.equal(page.element('#saveAll').disabled,true);
+ resolve({ok:true,workspace:'cx',tasks:[task]});await page.ready;
+});

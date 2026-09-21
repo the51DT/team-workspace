@@ -90,3 +90,18 @@ test('retired account roles cannot log in or reuse existing sessions',()=>{
  assert.throws(()=>app.run('requireSession('+JSON.stringify(session.token)+')'));
  assert.equal(app.run('listUsers().length'),1);
 });
+
+
+test('login identifies initial setup without a separate status request',()=>{
+ const app=harness();assert.equal(app.run("loginPayload({username:'admin',password:'password1'}).setupRequired"),true);
+ app.run("setupAdmin({username:'admin',password:'password1',name:'관리자'})");
+ assert.throws(()=>app.run("loginPayload({username:'unknown',password:'password1'})"));
+ assert.ok(app.run("loginPayload({username:'admin',password:'password1'}).token"));
+});
+
+test('existing workspace reads do not wait for the write lock',()=>{
+ const app=harness();app.run("loadPayload('cx')");
+ app.run("LockService.getScriptLock=()=>({waitLock(){throw Error('writer busy')},releaseLock(){}})");
+ assert.equal(app.run("loadPayload('cx').ok"),true);
+ assert.throws(()=>app.run("loadPayload('enterprise')"),/writer busy/);
+});

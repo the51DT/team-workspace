@@ -1080,6 +1080,7 @@ dialog::backdrop {
   justify-content: space-between;
   margin-bottom: 18px;
   padding: 0;
+  height: 50px;
 }
 .dialog-card header h2 {
   margin: 0;

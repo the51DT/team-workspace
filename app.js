@@ -80,7 +80,7 @@ async function load(){
     data=rows;newRows.clear();edits={};deleteMode=false;
     $('#deleteToggle').textContent='삭제';
     workers=[...new Set([...(Array.isArray(result.workers)?result.workers:[]),...data.map(r=>r[2])].filter(Boolean))];
-    serverConnected=true;if(result.user)currentUser=result.user;filters();applyPermissions();render();
+    serverConnected=true;if(result.user)currentUser=result.user;filters();applyPermissions(false);render();
 
     $('#saveStatus').textContent='● 새로고침 완료 · '+new Date().toLocaleTimeString('ko-KR');
 
@@ -300,7 +300,7 @@ if(typeof ResizeObserver!=='undefined'){
 
 
 function roleName(role){return {admin:'관리자',editor:'편집자'}[role]||role}
-function applyPermissions(){if(!currentUser)return;$('#logoutButton').hidden=!authToken;$$('[data-login]').forEach(el=>el.hidden=Boolean(authToken));$('#currentUser').textContent=currentUser.name+(currentUser.role?' · '+roleName(currentUser.role):'');$('#usersButton').hidden=currentUser.role!=='admin';const editable=canEdit();$('#workspacePage').classList.toggle('read-only',!editable);['newTask','carryOver','saveAll','deleteToggle'].forEach(id=>$('#'+id).disabled=!editable);render();}
+function applyPermissions(renderRows=true){if(!currentUser)return;$('#logoutButton').hidden=!authToken;$$('[data-login]').forEach(el=>el.hidden=Boolean(authToken));$('#currentUser').textContent=currentUser.name+(currentUser.role?' · '+roleName(currentUser.role):'');$('#usersButton').hidden=currentUser.role!=='admin';const editable=canEdit();$('#workspacePage').classList.toggle('read-only',!editable);['newTask','carryOver','saveAll','deleteToggle'].forEach(id=>$('#'+id).disabled=!editable);if(renderRows)render();}
 function showAuthenticated(){$('#authPage').hidden=true;$('#homePage').hidden=false;}
 async function publicRequest(payload){const response=await trackedFetch(window.APPS_SCRIPT_URL,{method:'POST',cache:'no-store',headers:{'Content-Type':'text/plain;charset=utf-8'},body:JSON.stringify(payload),signal:AbortSignal.timeout(30000)});const result=await response.json();if(!result?.ok)throw new Error(result?.error||'요청에 실패했습니다.');return result;}
 const AUTH_USER_KEY='workflow-auth-user';
@@ -315,19 +315,20 @@ async function initAuth(){
  await restoreRoute();
  if(authToken&&!serverConnected)validateRestoredSession();
 }
-async function openLogin(){
- $('#authPage').hidden=false;$('#homePage').hidden=true;$('#workspacePage').hidden=true;
- $('#authError').textContent='';$('#loginSubmit').disabled=true;
- try{const status=await publicRequest({action:'authStatus'});setupRequired=status.setupRequired;
+function configureLogin(){
  $('#authTitle').textContent=setupRequired?'초기 관리자 생성':'로그인';
- $('#authDescription').textContent=setupRequired?'첫 관리자 계정을 생성해 주세요.':'업무를 수정할 계정으로 로그인해 주세요.';
+ $('#authDescription').textContent=setupRequired?'첫 관리자 이름을 입력하고 계정을 생성해 주세요.':'업무를 수정할 계정으로 로그인해 주세요.';
  $('#nameField').hidden=!setupRequired;$('#loginName').required=setupRequired;
  $('#loginSubmit').textContent=setupRequired?'관리자 생성':'로그인';
- }catch(error){$('#authError').textContent=error.message;}finally{$('#loginSubmit').disabled=false;}
+}
+function openLogin(){
+ $('#authPage').hidden=false;$('#homePage').hidden=true;$('#workspacePage').hidden=true;
+ $('#authError').textContent='';$('#loginSubmit').disabled=false;configureLogin();
+ $('#loginUsername').focus();
 }
 $$('[data-login]').forEach(el=>el.onclick=openLogin);
 $('#cancelLogin').onclick=()=>{showAuthenticated();restoreRoute();};
-$("#authForm").onsubmit=async(event)=>{event.preventDefault();$("#authError").textContent="";$("#loginSubmit").disabled=true;try{if(setupRequired){await publicRequest({action:"setupAdmin",username:$("#loginUsername").value,password:$("#loginPassword").value,name:$("#loginName").value,});setupRequired=false;}const result=await publicRequest({action:"login",username:$("#loginUsername").value,password:$("#loginPassword").value,});authToken=result.token;currentUser=result.user;sessionStorage.setItem("workflow-auth-token",authToken);storeAuthUser(currentUser);showAuthenticated();applyPermissions();await restoreRoute();}catch(error){$("#authError").textContent=error.message;}finally{$("#loginSubmit").disabled=false;}};
+$("#authForm").onsubmit=async(event)=>{event.preventDefault();$("#authError").textContent="";$("#loginSubmit").disabled=true;try{if(setupRequired){await publicRequest({action:"setupAdmin",username:$("#loginUsername").value,password:$("#loginPassword").value,name:$("#loginName").value,});setupRequired=false;}const result=await publicRequest({action:"login",username:$("#loginUsername").value,password:$("#loginPassword").value,});if(result.setupRequired){setupRequired=true;configureLogin();$('#loginName').focus();return;}authToken=result.token;currentUser=result.user;sessionStorage.setItem("workflow-auth-token",authToken);storeAuthUser(currentUser);showAuthenticated();applyPermissions();await restoreRoute();}catch(error){$("#authError").textContent=error.message;}finally{$("#loginSubmit").disabled=false;}};
 $("#logoutButton").onclick=async()=>{try{await requestServer({action:"logout"});}catch{}clearAuthSession();location.reload();};
 $('#usersButton').onclick=async()=>{try{const result=await requestServer({action:'listUsers'});$('#userList').innerHTML=result.users.map(u=>`<div class="user-row"><span><strong>${esc(u.name)}</strong><small>${esc(u.username)}</small></span><span class="role-badge">${esc(roleName(u.role))}</span></div>`).join('');$('#userError').textContent='';$('#usersDialog').showModal();}catch(error){alert(error.message);}};
 $('#createUserButton').onclick=async()=>{try{await requestServer({action:'createUser',name:$('#newUserName').value,username:$('#newUsername').value,password:$('#newUserPassword').value,role:$('#newUserRole').value});$('#usersDialog').close();$('#usersButton').click();}catch(error){$('#userError').textContent=error.message;}};

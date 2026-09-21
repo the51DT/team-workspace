@@ -34,16 +34,17 @@ function doPost(e) {
 }
 function loadPayload(workspace) {
   workspace=workspaceKey(workspace);
-  const lock = LockService.getScriptLock();
-  lock.waitLock(10000);
-  try {
-    const values = getDataSheet(workspace).getRange('A2:B2').getValues()[0];
-    const tasks = values[0] ? JSON.parse(values[0]) : [];
-    validateTasks(tasks);
-    return { ok: true, workspace: workspace, tasks: tasks, workers: loadWorkers(workspace), updatedAt: values[1] || '' };
-  } finally {
-    lock.releaseLock();
+  // Existing data is read in one range call; readers need not wait for writers.
+  const book=SpreadsheetApp.getActiveSpreadsheet();
+  let sheet=book.getSheetByName(DATA_SHEETS[workspace]);
+  if(!sheet){
+    const lock=LockService.getScriptLock();lock.waitLock(10000);
+    try{sheet=getDataSheet(workspace);}finally{lock.releaseLock();}
   }
+  const values=sheet.getRange('A2:B2').getValues()[0];
+  const tasks=values[0]?JSON.parse(values[0]):[];
+  validateTasks(tasks);
+  return {ok:true,workspace:workspace,tasks:tasks,workers:loadWorkers(workspace),updatedAt:values[1]||''};
 }
 
 function loadWorkers(workspace) {
@@ -150,7 +151,7 @@ function setupAdmin(r){const lock=LockService.getScriptLock();lock.waitLock(1000
 function createUserPayload(r){return {ok:true,user:account(r.username,r.password,r.name,r.role)};}
 function findUser(u){const sh=authSheet();if(sh.getLastRow()<2)return null;const rows=sh.getRange(2,1,sh.getLastRow()-1,7).getValues();for(let row of rows)if(String(row[0]).toLowerCase()===u)return {username:String(row[0]),name:String(row[1]),role:String(row[2]),salt:String(row[3]),hash:String(row[4]),active:row[5]===true||String(row[5]).toLowerCase()==='true'};return null;}
 function publicUser(u){return {username:u.username,name:u.name,role:u.role};}
-function loginPayload(r){const u=cleanUsername(r.username),p=cleanPassword(r.password),user=findUser(u);if(!user||!user.active||ROLES.indexOf(user.role)<0||passwordHash(p,user.salt)!==user.hash)throw new Error('아이디 또는 비밀번호가 올바르지 않습니다.');const token=Utilities.getUuid()+Utilities.getUuid().replace(/-/g,''),expires=new Date(Date.now()+SESSION_HOURS*3600000).toISOString();sessionSheet().appendRow([token,u,expires]);return {ok:true,token:token,user:publicUser(user),expiresAt:expires};}
+function loginPayload(r){const u=cleanUsername(r.username),p=cleanPassword(r.password),user=findUser(u);if(!user&&!hasUsers())return {ok:true,setupRequired:true};if(!user||!user.active||ROLES.indexOf(user.role)<0||passwordHash(p,user.salt)!==user.hash)throw new Error('아이디 또는 비밀번호가 올바르지 않습니다.');const token=Utilities.getUuid()+Utilities.getUuid().replace(/-/g,''),expires=new Date(Date.now()+SESSION_HOURS*3600000).toISOString();sessionSheet().appendRow([token,u,expires]);return {ok:true,token:token,user:publicUser(user),expiresAt:expires};}
 function requireSession(token){token=String(token||'');if(!token)throw new Error('로그인이 필요합니다.');const sh=sessionSheet();if(sh.getLastRow()<2)throw new Error('로그인이 만료되었습니다.');const rows=sh.getRange(2,1,sh.getLastRow()-1,3).getValues();for(let i=rows.length-1;i>=0;i--)if(String(rows[i][0])===token&&new Date(rows[i][2]).getTime()>Date.now()){const u=findUser(String(rows[i][1]).toLowerCase());if(u&&u.active&&ROLES.indexOf(u.role)>=0)return u;}throw new Error('로그인이 만료되었습니다.');}
 function logoutPayload(token){const sh=sessionSheet();if(sh.getLastRow()>1){const rows=sh.getRange(2,1,sh.getLastRow()-1,3).getValues();for(let i=rows.length-1;i>=0;i--)if(String(rows[i][0])===String(token))sh.deleteRow(i+2);}return {ok:true};}
 function requireRole(u,a){if(a.indexOf(u.role)<0)throw new Error('이 작업을 수행할 권한이 없습니다.');}
