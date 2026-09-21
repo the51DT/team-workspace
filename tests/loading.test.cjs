@@ -65,6 +65,15 @@ test('active tab excludes completed, held and carried-over tasks',async()=>{
  page.element('#worker').value='다른 작업자';assert.equal(page.run('selected().length'),0);
  page.element('#worker').value='all';page.run("currentTab='list'");assert.equal(page.run('selected().length'),8);
 });
+test('tab selection refreshes the rendered rows immediately',async()=>{
+ const completed=[...task];completed[3]='완료';completed[5]='완료 업무';
+ const page=app(()=>({ok:true,tasks:[task,completed]}));await page.ready;
+ assert.doesNotMatch(page.element('#rows').innerHTML,/완료 업무/);
+ page.run("selectTab('list')");
+ assert.match(page.element('#rows').innerHTML,/완료 업무/);
+ page.run("selectTab('active')");
+ assert.doesNotMatch(page.element('#rows').innerHTML,/완료 업무/);
+});
 test('save commits focused edit and storage cleanup failure does not report remote save failure',async()=>{
  let saved;const page=app(p=>{if(p.action==='save'){saved=p.tasks;return {ok:true}}return {ok:true,tasks:[task]}});await page.ready;
  page.run("document.activeElement={blur(){remember(0,5,'입력 중인 제목')}};localStorage.removeItem=()=>{throw new Error('storage blocked')}");

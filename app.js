@@ -196,6 +196,7 @@ function selectTab(tab){
  currentTab=tab;
  $$('[data-tab]').forEach(b=>b.classList.toggle('active',b.dataset.tab===tab));
  showView();
+ render();
 }
 function updateWorkspaceHeader(){
  const name=workspaceNames[currentWorkspace];
