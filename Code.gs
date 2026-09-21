@@ -84,7 +84,7 @@ function getWorkerSheet(workspace, createIfMissing) {
   return sheet;
 }
 
-// 9열: 등록, RMS, 작업자, 단계, 완료 & 반영일, 업무제목, 비고, 실 작업 시간, 조정.
+// 9열: 등록, RMS, 작업자, 단계, 완료 & 반영일, 업무제목, 비고, 작업시간, 조정.
 // 기존 프로젝트에서 저장한 11열 데이터도 조회할 수 있습니다.
 function validateTasks(tasks) {
   if (!Array.isArray(tasks) || tasks.some(function (row) {
