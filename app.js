@@ -42,12 +42,18 @@ async function trackedFetch(url,options){updateLoadingBar(1);try{return await fe
 let loading=false;
 async function requestServer(payload){
   if(!window.APPS_SCRIPT_URL)throw new Error('config.js에 Apps Script 웹 앱 URL을 설정해 주세요.');
-  const response=await trackedFetch(window.APPS_SCRIPT_URL,{method:'POST',cache:'no-store',headers:{'Content-Type':'text/plain;charset=utf-8'},body:JSON.stringify({...payload,workspace:currentWorkspace,token:authToken}),signal:AbortSignal.timeout(payload.action==='load'?60000:30000)});
+  const publicRead=payload.action==='loadAudit'||(payload.action==='load'&&!authToken);
+  const url=new URL(window.APPS_SCRIPT_URL);
+  if(publicRead){url.searchParams.set('action',payload.action);url.searchParams.set('workspace',currentWorkspace);}
+  const response=await trackedFetch(url.toString(),{method:publicRead?'GET':'POST',cache:'no-store',...(!publicRead?{headers:{'Content-Type':'text/plain;charset=utf-8'},body:JSON.stringify({...payload,workspace:currentWorkspace,token:authToken})}:{}),signal:AbortSignal.timeout(payload.action==='load'?60000:30000)});
   if(!response.ok)throw new Error('서버 응답 오류 (HTTP '+response.status+')');
   let result;
   try{result=await response.json()}catch{throw new Error('서버가 JSON을 반환하지 않습니다. 웹 앱 배포와 접근 권한을 확인해 주세요.')}
-  if(!result?.ok)throw new Error(result?.error||result?.message||'Apps Script 요청에 실패했습니다.');
-  if((result.workspace&&result.workspace!==currentWorkspace)||(currentWorkspace!=='cx'&&result.workspace!==currentWorkspace))throw new Error('기업·알닷 저장소를 사용하려면 수정된 Code.gs를 Apps Script에 새 버전으로 배포해 주세요.');
+  if(!result?.ok){
+    if(result?.error==='POST 로그인 요청을 사용해 주세요.')throw new Error('서버에 이전 조회 코드가 배포되어 있습니다. Code.gs를 반영하고 배포 관리에서 새 버전으로 배포한 뒤 config.js의 /exec URL을 확인해 주세요.');
+    throw new Error(result?.error||result?.message||'Apps Script 요청에 실패했습니다.');
+  }
+  if(['load','save','saveWorkers','loadAudit'].includes(payload.action)&&((result.workspace&&result.workspace!==currentWorkspace)||(currentWorkspace!=='cx'&&result.workspace!==currentWorkspace)))throw new Error('기업·알닷 저장소를 사용하려면 수정된 Code.gs를 Apps Script에 새 버전으로 배포해 주세요.');
   return result;
 }
 function lockControls(busy){['newTask','carryOver','saveAll','deleteToggle'].forEach(id=>{const el=$("#"+id);if(el)el.disabled=busy||!canEdit()});const refresh=$("#refresh");if(refresh)refresh.disabled=busy;$("#rows").inert=busy}
@@ -87,6 +93,7 @@ async function load(){
 }
 async function saveAll(options={}){
   const automatic=options?.automatic===true;
+  if(currentUser&&!canEdit()){if(!automatic)alert('수정하려면 편집 권한이 있는 계정으로 로그인해 주세요.');return false;}
   if(autoSaveTimer){clearTimeout(autoSaveTimer);autoSaveTimer=0;}
   if(loading||saving)return false;
   if(!serverConnected){if(!automatic)alert('서버 데이터를 먼저 불러와 주세요.');return false}
@@ -172,7 +179,7 @@ function dateValue(v){let m=String(v||'').trim().match(/^(?:(\d{4})[.\/-])?(\d{1
 function dateCell(v,r){return `<td class="date-cell"><input type="date" class="date-input" aria-label="완료 및 반영일" data-row="${r}" value="${dateValue(v)}"></td>`}function selectCell(v,r,c,items,type){return `<td class="select-cell"><select class="cell-select ${type} ${type==='status-select'?statusClass(v):''}" data-row="${r}" data-col="${c}">${items.map(x=>`<option ${x===v?'selected':''}>${esc(x)}</option>`).join('')}</select></td>`}
 function parsedHours(value){const normalized=String(value??"").trim().replace(",",".").replace(/\s*h(?:ours?)?$/i,"");const hours=Number(normalized);return Number.isFinite(hours)?hours:0;}
 function renderWorkSummary(rows){const totals=new Map();rows.forEach(({r})=>{const worker=String(r[2]||"").trim();if(worker)totals.set(worker,(totals.get(worker)||0)+parsedHours(r[9]));});const order=[...visibleWorkers(),...totals.keys()].filter((name,index,all)=>totals.has(name)&&all.indexOf(name)===index);const summary=$("#workSummary");summary.hidden=!order.length;summary.innerHTML=order.map((name,index)=>{const total=totals.get(name);return`<article ${order.length===1?'id="publishingWorkSummary" ':""}class="summary-card summary-work-card" data-worker="${esc(name)}"><span class="summary-label">작업시간</span><strong class="worker-name">${esc(name)}</strong><div class="work-time-value"><strong class="publishing-total-hours">${esc(total.toFixed(3))}</strong><span class="hour-unit">h</span></div></article>`;}).join("");}
-function render(){let a=selected();renderWorkSummary(a);$("#rows").innerHTML=a.map(({r,i})=>`<tr data-index="${i}" class="${newRows.has(i)?"new-row":""}"><td class="locked">${deleteMode?`<input class="row-check" type="checkbox" data-check="${i}" aria-label="행 선택">`:esc(registrationLabel(r[0]))}</td>${rmsCell(r[1],i)}${selectCell(r[2],i,2,["",...new Set([...visibleWorkers(),...(r[2]?[r[2]]:[])])],"worker-select")}${selectCell(r[3],i,3,statuses,"status-select")}${dateCell(r[4],i)}${cell(r[5],i,5,"task")}${cell(r[6],i,6)}${numberCell(r[9],i,9)}${numberCell(r[10],i,10)}</tr>`).join("");$("#count").textContent=`총 ${a.length}개의 업무`;bind();$$(".row-check").forEach((x)=>(x.onchange=updateDeleteButton));updateDeleteButton();}
+function render(){let a=selected();renderWorkSummary(a);$("#rows").innerHTML=a.map(({r,i})=>`<tr data-index="${i}" class="${newRows.has(i)?"new-row":""}"><td class="locked">${deleteMode?`<input class="row-check" type="checkbox" data-check="${i}" aria-label="행 선택">`:esc(registrationLabel(r[0]))}</td>${rmsCell(r[1],i)}${selectCell(r[2],i,2,["",...new Set([...visibleWorkers(),...(r[2]?[r[2]]:[])])],"worker-select")}${selectCell(r[3],i,3,statuses,"status-select")}${dateCell(r[4],i)}${cell(r[5],i,5,"task")}${cell(r[6],i,6)}${numberCell(r[9],i,9)}${numberCell(r[10],i,10)}</tr>`).join("");$("#count").textContent=`총 ${a.length}개의 업무`;bind();if(currentUser&&!canEdit()){$$("#rows input, #rows select").forEach(el=>el.disabled=true);$$("#rows [contenteditable]").forEach(el=>el.setAttribute("contenteditable","false"));}$$(".row-check").forEach((x)=>(x.onchange=updateDeleteButton));updateDeleteButton();}
 function scheduleAutoSave(){
  if(suppressAutoSave||!serverConnected||(currentUser&&!canEdit())||typeof document.getElementById!=='function')return;
  if(autoSaveTimer)clearTimeout(autoSaveTimer);
@@ -293,7 +300,7 @@ if(typeof ResizeObserver!=='undefined'){
 
 
 function roleName(role){return {admin:'관리자',editor:'편집자',viewer:'조회자'}[role]||role}
-function applyPermissions(){if(!currentUser)return;$('#currentUser').textContent=currentUser.name+' · '+roleName(currentUser.role);$('#usersButton').hidden=currentUser.role!=='admin';const editable=canEdit();$('#workspacePage').classList.toggle('read-only',!editable);['newTask','carryOver','saveAll','deleteToggle'].forEach(id=>$('#'+id).disabled=!editable);render();}
+function applyPermissions(){if(!currentUser)return;$('#logoutButton').hidden=!authToken;$$('[data-login]').forEach(el=>el.hidden=Boolean(authToken));$('#currentUser').textContent=currentUser.name+' · '+roleName(currentUser.role);$('#usersButton').hidden=currentUser.role!=='admin';const editable=canEdit();$('#workspacePage').classList.toggle('read-only',!editable);['newTask','carryOver','saveAll','deleteToggle'].forEach(id=>$('#'+id).disabled=!editable);render();}
 function showAuthenticated(){$('#authPage').hidden=true;$('#homePage').hidden=false;}
 async function publicRequest(payload){const response=await trackedFetch(window.APPS_SCRIPT_URL,{method:'POST',cache:'no-store',headers:{'Content-Type':'text/plain;charset=utf-8'},body:JSON.stringify(payload),signal:AbortSignal.timeout(30000)});const result=await response.json();if(!result?.ok)throw new Error(result?.error||'요청에 실패했습니다.');return result;}
 const AUTH_USER_KEY='workflow-auth-user';
@@ -301,11 +308,30 @@ function cachedAuthUser(){try{const user=JSON.parse(sessionStorage.getItem(AUTH_
 function storeAuthUser(user){sessionStorage.setItem(AUTH_USER_KEY,JSON.stringify(user));}
 function clearAuthSession(){sessionStorage.removeItem('workflow-auth-token');sessionStorage.removeItem(AUTH_USER_KEY);authToken='';currentUser=null;}
 async function validateRestoredSession(){try{const result=await requestServer({action:'session'});currentUser=result.user;storeAuthUser(currentUser);applyPermissions();}catch{clearAuthSession();location.reload();}}
-async function initAuth(){$("#homePage").hidden=true;$("#workspacePage").hidden=true;authToken=sessionStorage.getItem("workflow-auth-token")||"";const cachedUser=cachedAuthUser();if(authToken&&cachedUser){currentUser=cachedUser;showAuthenticated();applyPermissions();await restoreRoute();if(!serverConnected)validateRestoredSession();return;}if(authToken){try{const result=await requestServer({action:"session"});currentUser=result.user;storeAuthUser(currentUser);showAuthenticated();applyPermissions();await restoreRoute();return;}catch{clearAuthSession();}}try{const status=await publicRequest({action:"authStatus"});setupRequired=status.setupRequired;$("#authTitle").textContent=setupRequired?"초기 관리자 생성":"로그인";$("#authDescription").textContent=setupRequired?"첫 관리자 계정을 생성해 주세요. 이후 계정 생성은 관리자만 가능합니다.":"업무 관리 계정으로 로그인해 주세요.";$("#nameField").hidden=!setupRequired;$("#loginName").required=setupRequired;$("#loginSubmit").textContent=setupRequired?"관리자 생성":"로그인";}catch(error){$("#authError").textContent=error.message;}}
+const guestUser={name:'로그인 없이 조회 중',role:'viewer'};
+async function initAuth(){
+ currentUser=guestUser;
+ try{authToken=sessionStorage.getItem('workflow-auth-token')||'';}catch{}
+ showAuthenticated();applyPermissions();
+ await restoreRoute();
+ if(authToken&&!serverConnected)validateRestoredSession();
+}
+async function openLogin(){
+ $('#authPage').hidden=false;$('#homePage').hidden=true;$('#workspacePage').hidden=true;
+ $('#authError').textContent='';$('#loginSubmit').disabled=true;
+ try{const status=await publicRequest({action:'authStatus'});setupRequired=status.setupRequired;
+ $('#authTitle').textContent=setupRequired?'초기 관리자 생성':'로그인';
+ $('#authDescription').textContent=setupRequired?'첫 관리자 계정을 생성해 주세요.':'업무를 수정할 계정으로 로그인해 주세요.';
+ $('#nameField').hidden=!setupRequired;$('#loginName').required=setupRequired;
+ $('#loginSubmit').textContent=setupRequired?'관리자 생성':'로그인';
+ }catch(error){$('#authError').textContent=error.message;}finally{$('#loginSubmit').disabled=false;}
+}
+$$('[data-login]').forEach(el=>el.onclick=openLogin);
+$('#cancelLogin').onclick=()=>{showAuthenticated();restoreRoute();};
 $("#authForm").onsubmit=async(event)=>{event.preventDefault();$("#authError").textContent="";$("#loginSubmit").disabled=true;try{if(setupRequired){await publicRequest({action:"setupAdmin",username:$("#loginUsername").value,password:$("#loginPassword").value,name:$("#loginName").value,});setupRequired=false;}const result=await publicRequest({action:"login",username:$("#loginUsername").value,password:$("#loginPassword").value,});authToken=result.token;currentUser=result.user;sessionStorage.setItem("workflow-auth-token",authToken);storeAuthUser(currentUser);showAuthenticated();applyPermissions();await restoreRoute();}catch(error){$("#authError").textContent=error.message;}finally{$("#loginSubmit").disabled=false;}};
 $("#logoutButton").onclick=async()=>{try{await requestServer({action:"logout"});}catch{}clearAuthSession();location.reload();};
 $('#usersButton').onclick=async()=>{try{const result=await requestServer({action:'listUsers'});$('#userList').innerHTML=result.users.map(u=>`<div class="user-row"><span><strong>${esc(u.name)}</strong><small>${esc(u.username)}</small></span><span class="role-badge">${esc(roleName(u.role))}</span></div>`).join('');$('#userError').textContent='';$('#usersDialog').showModal();}catch(error){alert(error.message);}};
 $('#createUserButton').onclick=async()=>{try{await requestServer({action:'createUser',name:$('#newUserName').value,username:$('#newUsername').value,password:$('#newUserPassword').value,role:$('#newUserRole').value});$('#usersDialog').close();$('#usersButton').click();}catch(error){$('#userError').textContent=error.message;}};
-$('#historyButton').onclick=async()=>{try{const result=await requestServer({action:'loadAudit'});$('#historyList').innerHTML=result.entries.length?result.entries.map(e=>`<div class="history-row"><strong>${esc(e.name)} · ${esc(e.action)} · ${esc(e.task)}</strong><small>${esc(e.at)} · ${esc(roleName(e.role))} · ${esc(e.field)}</small><span class="history-change">${esc(e.before)} → ${esc(e.after)}</span></div>`).join(''):'<p>아직 수정 이력이 없습니다.</p>';$('#historyDialog').showModal();}catch(error){alert(error.message);}};
+$('#historyButton').onclick=async()=>{$('#historyList').textContent='수정 이력을 불러오는 중…';$('#historyDialog').showModal();try{const result=await requestServer({action:'loadAudit'});$('#historyList').innerHTML=result.entries.length?result.entries.map(e=>`<div class="history-row"><strong>${esc(e.name)} · ${esc(e.action)} · ${esc(e.task)}</strong><small>${esc(e.at)} · ${esc(roleName(e.role))} · ${esc(e.field)}</small><span class="history-change">${esc(e.before)} → ${esc(e.after)}</span></div>`).join(''):'<p>아직 수정 이력이 없습니다.</p>';}catch(error){$('#historyList').textContent=error.message;}};
 
 if(typeof document.getElementById==='function')initAuth();else restoreRoute();

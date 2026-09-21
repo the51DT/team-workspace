@@ -3,15 +3,15 @@ const assert=require('node:assert/strict');
 const fs=require('node:fs');
 const vm=require('node:vm');
 const source=fs.readFileSync(require('node:path').join(__dirname,'../app.js'),'utf8');
-function app(handler,storage=new Map(),hash='#cx'){
+function app(handler,storage=new Map(),hash='#cx',guest=false){
   const location={hash,pathname:'/index.html',search:''};
   const navigate=(_state,_title,url)=>{location.hash=url.includes('#')?url.slice(url.indexOf('#')):''};
   const elements=new Map(),requests=[];
   const element=id=>{if(!elements.has(id))elements.set(id,{value:['#worker','#status'].includes(id)?'all':'',innerHTML:'',textContent:'',classList:{active:false,toggle(_name,on){this.active=on}},addEventListener(){},setAttribute(){},focus(){}});return elements.get(id)};
-  const context=vm.createContext({window:{location,history:{pushState:navigate,replaceState:navigate},addEventListener(){},APPS_SCRIPT_URL:'https://example.test/exec',WORKERS:['작업자 A']},AbortSignal,console,
-    fetch:async(url,options)=>{const payload=JSON.parse(options.body);requests.push({url,payload,headers:options.headers});const result=await handler(payload);return {ok:true,json:async()=>result}},
+  const context=vm.createContext({window:{location,history:{pushState:navigate,replaceState:navigate},addEventListener(){},APPS_SCRIPT_URL:'https://example.test/exec',WORKERS:['작업자 A']},URL,AbortSignal,console,
+    fetch:async(url,options)=>{const payload=options.method==='GET'?Object.fromEntries(new URL(url).searchParams):JSON.parse(options.body);requests.push({url,payload,method:options.method,headers:options.headers});const result=await handler(payload);return {ok:true,json:async()=>result}},
     localStorage:{getItem:key=>storage.get(key)??null,setItem:(key,value)=>storage.set(key,value),removeItem:key=>storage.delete(key)},alert(){},confirm:()=>true,requestAnimationFrame:fn=>fn(),setTimeout,
-    document:{querySelector:element,querySelectorAll:()=>[]}});
+    document:{querySelector:element,querySelectorAll:()=>[],...(guest?{getElementById:element}:{})}});
   const ready=vm.runInContext(source,context);
   return {ready,requests,element,run:code=>vm.runInContext(code,context)};
 }
@@ -257,4 +257,32 @@ test('home entry makes no server request and workspace navigation preserves draf
 });
 test('unknown workspace route opens home without loading data',async()=>{
  const page=app(()=>({ok:true,tasks:[]}),new Map(),'#unknown');await page.ready;assert.equal(page.requests.length,0);assert.equal(page.run('window.location.hash'),'');
+});
+
+
+test('guest home opens without authentication requests and workspace is read only',async()=>{
+ const page=app(p=>({ok:true,workspace:p.workspace,tasks:[task]}),new Map(),'',true);await page.ready;
+ assert.equal(page.requests.length,0);assert.equal(page.element('#homePage').hidden,false);assert.equal(page.element('#authPage').hidden,true);
+ await page.run("switchWorkspace('enterprise')");
+ assert.equal(page.requests.length,1);assert.equal(page.requests[0].payload.action,'load');
+ assert.equal(page.element('#saveAll').disabled,true);assert.equal(page.element('#usersButton').hidden,true);
+ assert.equal(page.element('#workspacePage').classList.active,true);
+ await page.run('saveAll()');assert.equal(page.requests.length,1);
+});
+
+
+test('public reads use explicit GET parameters while authenticated loads and saves use POST',async()=>{
+ const page=app(p=>({ok:true,workspace:p.workspace,tasks:[]}));await page.ready;
+ assert.equal(page.requests[0].method,'GET');assert.equal(new URL(page.requests[0].url).searchParams.get('workspace'),'cx');
+ assert.equal(new URL(page.requests[0].url).searchParams.has('token'),false);
+ page.run("authToken='secret';currentUser={name:'편집자',role:'editor'}");await page.run('load()');
+ assert.equal(page.requests[1].method,'POST');assert.equal(page.requests[1].payload.token,'secret');
+ await page.run('saveAll()');assert.equal(page.requests[2].method,'POST');
+ await page.run("requestServer({action:'loadAudit'})");assert.equal(page.requests[3].method,'GET');assert.equal(page.requests[3].url.includes('secret'),false);
+});
+
+test('old GET deployment gives actionable update instructions and keeps saving disabled',async()=>{
+ const page=app(()=>({ok:false,error:'POST 로그인 요청을 사용해 주세요.'}));await page.ready;
+ assert.match(page.element('#saveStatus').textContent,/Code.gs.*새 버전/);
+ assert.equal(page.element('#saveAll').disabled,true);assert.equal(page.requests.length,1);
 });

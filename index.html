@@ -12,7 +12,7 @@
   </head>
   <body>
     <div id="loadingBar" class="loading-bar" role="progressbar" aria-label="불러오는 중" aria-hidden="true"><span></span></div>
-    <div id="authPage" class="auth-page">
+    <div id="authPage" class="auth-page" hidden>
       <form id="authForm" class="auth-card">
         <p class="home-brand">▥ WORK<span>FLOW</span></p>
         <h1 id="authTitle">로그인</h1>
@@ -32,12 +32,14 @@
             required
         /></label>
         <button id="loginSubmit" type="submit">로그인</button>
+        <button id="cancelLogin" type="button">로그인 없이 조회</button>
         <p id="authError" role="alert"></p>
       </form>
     </div>
-    <div id="homePage" class="home-page" hidden>
+    <div id="homePage" class="home-page">
       <div class="account-actions">
-        <button id="usersButton" type="button">계정 관리</button>
+        <button type="button" data-login>로그인</button>
+        <button id="usersButton" type="button" hidden>계정 관리</button>
       </div>
       <div class="home-content">
         <p class="home-brand">▥ WORK<span>FLOW</span></p>
@@ -91,7 +93,8 @@
           </button>
           <div class="workspace-account-actions">
             <button id="historyButton" type="button">수정 이력</button>
-            <button id="logoutButton" type="button">로그아웃</button>
+            <button type="button" data-login>로그인</button>
+            <button id="logoutButton" type="button" hidden>로그아웃</button>
             <span id="currentUser"></span>
           </div>
           <i>CX</i>
@@ -234,7 +237,7 @@
         <div id="historyList"></div>
       </form>
     </dialog>
-    <script src="config.js?v=20260921-17"></script>
+    <script src="config.js?v=20260921-18"></script>
     <script src="app.js?v=20260921-11"></script>
   </body>
 </html>

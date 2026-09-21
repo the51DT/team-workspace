@@ -45,3 +45,39 @@ test('accounts enforce roles and editor saves create audit history',()=>{
  const audit=app.run("loadAuditPayload('cx')");
  assert.ok(audit.entries.some(entry=>entry.name==='편집자'&&entry.field==='단계'&&entry.before==='배정'&&entry.after==='진행중'));
 });
+
+test('public reads work in every workspace while mutations still require a session',()=>{
+ const app=harness();app.run('jsonResponse=payload=>payload');
+ const post=payload=>app.run('doPost({postData:{contents:'+JSON.stringify(JSON.stringify(payload))+'}})');
+ for(const workspace of ['cx','enterprise','aldot']){
+  assert.equal(post({action:'load',workspace}).ok,true);
+  const history=post({action:'loadAudit',workspace});assert.equal(history.ok,true);assert.equal(history.workspace,workspace);
+ }
+ for(const action of ['save','saveWorkers','listUsers','createUser']){
+  const result=post({action,workspace:'cx',tasks:[],workers:[]});assert.equal(result.ok,false);assert.match(result.error,/로그인/);
+ }
+});
+
+test('nine-column work hours are recorded with the correct audit field',()=>{
+ const app=harness();
+ app.run("appendAudit('cx',{username:'editor',name:'편집자',role:'editor'},[['9/21','','담당자','배정','','업무','','1','0']],[['9/21','','담당자','배정','','업무','','2','3']],'2026-09-21')");
+ const entries=app.run("loadAuditPayload('cx').entries");
+ assert.equal(entries.find(e=>e.field==='작업시간').after,'2');
+ assert.equal(entries.find(e=>e.field==='조정').after,'3');
+});
+
+
+test('GET exposes only workspace-scoped public reads and never performs mutations',()=>{
+ const app=harness();app.run('jsonResponse=payload=>payload');
+ const get=parameter=>app.run('doGet({parameter:'+JSON.stringify(parameter)+'})');
+ for(const workspace of ['cx','enterprise','aldot']){
+  for(const action of ['load','loadAudit']){
+   const result=get({action,workspace});assert.equal(result.ok,true);assert.equal(result.workspace,workspace);
+  }
+ }
+ for(const action of ['save','saveWorkers','setupAdmin','createUser','login','listUsers','logout','session']){
+  assert.equal(get({action,workspace:'cx'}).ok,false);
+ }
+ assert.equal(get({action:'load',workspace:'unknown'}).ok,false);
+ assert.equal(app.run('hasUsers()'),false);
+});
