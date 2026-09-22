@@ -105,3 +105,12 @@ test('existing workspace reads do not wait for the write lock',()=>{
  assert.equal(app.run("loadPayload('cx').ok"),true);
  assert.throws(()=>app.run("loadPayload('enterprise')"),/writer busy/);
 });
+
+
+test('STG date saves and appears under its own audit field',()=>{
+ const app=harness();
+ app.run("savePayload([['9/22','','담당자','배정','','업무','','','','1','0','']], 'enterprise')");
+ app.run("savePayload([['9/22','','담당자','배정','','업무','','','','1','0','2026-09-25']], 'enterprise', {username:'editor',name:'편집자',role:'editor'})");
+ assert.equal(app.run("loadPayload('enterprise').tasks[0][11]"),'2026-09-25');
+ assert.equal(app.run("loadAuditPayload('enterprise').entries[0].field"),'STG 반영일');
+});

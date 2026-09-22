@@ -337,3 +337,16 @@ test('home and workspace both expose logout controls',()=>{
  assert.equal((html.match(/data-logout/g)||[]).length,2);
  assert.match(html,/account-actions[\s\S]*data-logout/);
 });
+
+
+test('enterprise STG date persists separately and adjustment is only visible in CX',async()=>{
+ const stores={cx:[task],enterprise:[task],aldot:[task]};
+ const page=app(p=>{if(p.action==='save')stores[p.workspace]=p.tasks;return {ok:true,workspace:p.workspace,tasks:stores[p.workspace]}});await page.ready;
+ assert.match(page.element('#rows').innerHTML,/aria-label="조정"/);
+ await page.run("switchWorkspace('enterprise')");
+ assert.match(page.element('#rows').innerHTML,/aria-label="STG 반영일"/);
+ assert.doesNotMatch(page.element('#rows').innerHTML,/aria-label="조정"/);
+ page.run("remember(0,11,'2026-09-25')");await page.run('saveAll()');await page.run('load()');
+ assert.equal(stores.enterprise[0].length,12);assert.equal(page.run('data[0][11]'),'2026-09-25');assert.equal(page.run('data[0][4]'),'2026-09-20');
+ await page.run("switchWorkspace('aldot')");assert.doesNotMatch(page.element('#rows').innerHTML,/STG 반영일|aria-label="조정"/);
+});

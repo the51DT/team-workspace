@@ -425,8 +425,7 @@ footer span:last-child {
   text-decoration: underline;
   font-weight: bold;
 }
-.table td:nth-child(8),
-.table td:nth-child(9) {
+.table .number-cell {
   text-align: center;
 }
 @keyframes saved {
@@ -653,8 +652,7 @@ footer span:last-child {
   vertical-align: middle;
   padding: 10px 6px;
 }
-.table td:nth-child(6),
-.table td:nth-child(7) {
+.table td.editable {
   white-space: pre-wrap;
   overflow-wrap: anywhere;
   text-overflow: clip;
@@ -686,8 +684,8 @@ footer span:last-child {
 .table .col-notes {
   width: auto;
 }
-.table th:not(:nth-child(6)):not(:nth-child(7)),
-.table td:not(:nth-child(6)):not(:nth-child(7)) {
+.table th:not(.text-column),
+.table td:not(.editable) {
   padding: 6px 3px;
 }
 .table .select-cell,

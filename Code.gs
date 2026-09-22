@@ -84,16 +84,16 @@ function getWorkerSheet(workspace, createIfMissing) {
   return sheet;
 }
 
-// 9열: 등록, RMS, 작업자, 단계, 완료 & 반영일, 업무제목, 비고, 작업시간, 조정.
+// 9열: 등록, RMS, 작업자, 단계, 운영 반영일, 업무제목, 비고, 작업시간, 조정.
 // 기존 프로젝트에서 저장한 11열 데이터도 조회할 수 있습니다.
 function validateTasks(tasks) {
   if (!Array.isArray(tasks) || tasks.some(function (row) {
-    return !Array.isArray(row) || (row.length !== 9 && row.length !== 11) ||
+    return !Array.isArray(row) || (row.length !== 9 && row.length !== 11 && row.length !== 12) ||
       row.some(function (value) {
         return value !== null && ['string', 'number', 'boolean'].indexOf(typeof value) === -1;
       });
   })) {
-    throw new Error('업무 데이터는 9개 열의 배열이어야 합니다.');
+    throw new Error('업무 데이터는 9, 11 또는 12개 열의 배열이어야 합니다.');
   }
 }
 
@@ -156,6 +156,6 @@ function requireSession(token){token=String(token||'');if(!token)throw new Error
 function logoutPayload(token){const sh=sessionSheet();if(sh.getLastRow()>1){const rows=sh.getRange(2,1,sh.getLastRow()-1,3).getValues();for(let i=rows.length-1;i>=0;i--)if(String(rows[i][0])===String(token))sh.deleteRow(i+2);}return {ok:true};}
 function requireRole(u,a){if(a.indexOf(u.role)<0)throw new Error('이 작업을 수행할 권한이 없습니다.');}
 function listUsers(){const sh=authSheet();if(sh.getLastRow()<2)return [];return sh.getRange(2,1,sh.getLastRow()-1,7).getValues().map(r=>({username:String(r[0]),name:String(r[1]),role:String(r[2]),active:r[5]===true||String(r[5]).toLowerCase()==='true',createdAt:String(r[6]||'')})).filter(u=>ROLES.indexOf(u.role)>=0);}
-const AUDIT_FIELDS=['등록','RMS','작업자','단계','완료 & 반영일','업무제목','비고','진행시각','완료시각','작업시간','조정'];
+const AUDIT_FIELDS=['등록','RMS','작업자','단계','운영 반영일','업무제목','비고','진행시각','완료시각','작업시간','조정','STG 반영일'];
 function appendAudit(ws,u,before,after,at){const rows=[],max=Math.max(before.length,after.length);for(let i=0;i<max;i++){const normalize=r=>r&&r.length===9?r.slice(0,7).concat(['',''],r.slice(7)):r;const a=normalize(before[i]),b=normalize(after[i]),title=String((b||a||[])[5]||('업무 '+(i+1)));if(!a||!b){rows.push([at,u.username,u.name,u.role,ws,!a?'추가':'삭제',title,'전체',a?JSON.stringify(a):'',b?JSON.stringify(b):'']);continue;}for(let c=0;c<Math.max(a.length,b.length);c++){const x=String(a[c]??''),y=String(b[c]??'');if(x!==y)rows.push([at,u.username,u.name,u.role,ws,'수정',title,AUDIT_FIELDS[c]||('열 '+(c+1)),x,y]);}}if(rows.length){const sh=auditSheet();sh.getRange(sh.getLastRow()+1,1,rows.length,10).setValues(rows);}}
 function loadAuditPayload(ws){ws=workspaceKey(ws);const sh=auditSheet();if(sh.getLastRow()<2)return {ok:true,workspace:ws,entries:[]};const n=Math.min(500,sh.getLastRow()-1),start=sh.getLastRow()-n+1;const values=sh.getRange(start,1,n,10).getDisplayValues().reverse().filter(r=>r[4]===ws);return {ok:true,workspace:ws,entries:values.map(r=>({at:r[0],username:r[1],name:r[2],role:r[3],workspace:r[4],action:r[5],task:r[6],field:r[7],before:r[8],after:r[9]}))};}

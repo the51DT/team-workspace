@@ -8,7 +8,7 @@
       rel="stylesheet"
       href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard/dist/web/static/pretendard.css"
     />
-    <link rel="stylesheet" href="styles.css?v=20260922-1" />
+    <link rel="stylesheet" href="styles.css?v=20260922-2" />
   </head>
   <body>
     <div
@@ -189,11 +189,12 @@
                   <col class="col-rms" />
                   <col class="col-worker" />
                   <col class="col-status" />
+                  <col class="col-date" data-enterprise-column hidden />
                   <col class="col-date" />
                   <col class="col-title" />
                   <col class="col-notes" />
                   <col class="col-hours" />
-                  <col class="col-adjustment" />
+                  <col class="col-adjustment" data-adjustment-column />
                 </colgroup>
                 <thead>
                   <tr>
@@ -201,23 +202,24 @@
                     <th>RMS</th>
                     <th>작업자</th>
                     <th>단계</th>
+                    <th data-enterprise-column hidden>STG 반영일</th>
                     <th class="sortable-header" aria-sort="none">
                       <button
                         id="completionDateSort"
                         class="table-sort-button"
                         type="button"
-                        title="완료 및 반영일 오름차순 정렬"
+                        title="운영 반영일 오름차순 정렬"
                       >
-                        완료 &amp; 반영일
+                        운영 반영일
                         <span id="completionSortIcon" aria-hidden="true"
                           >↕</span
                         >
                       </button>
                     </th>
-                    <th>업무제목</th>
-                    <th>비고</th>
+                    <th class="text-column">업무제목</th>
+                    <th class="text-column">비고</th>
                     <th>작업시간</th>
-                    <th>조정</th>
+                    <th data-adjustment-column>조정</th>
                   </tr>
                 </thead>
                 <tbody id="rows"></tbody>
@@ -266,7 +268,7 @@
         <div id="historyList"></div>
       </form>
     </dialog>
-    <script src="config.js?v=20260921-21"></script>
-    <script src="app.js?v=20260922-2"></script>
+    <script src="config.js?v=20260922-1"></script>
+    <script src="app.js?v=20260922-3"></script>
   </body>
 </html>
