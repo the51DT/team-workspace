@@ -1183,8 +1183,12 @@ dialog::backdrop {
   animation: loading-bar-slide 1s ease-in-out infinite;
 }
 @keyframes loading-bar-slide {
-  from { transform: translateX(-110%); }
-  to { transform: translateX(390%); }
+  from {
+    transform: translateX(-110%);
+  }
+  to {
+    transform: translateX(390%);
+  }
 }
 .workspace-account-actions {
   display: flex;
@@ -1203,10 +1207,46 @@ dialog::backdrop {
   white-space: nowrap;
 }
 @media (max-width: 1100px) {
-  .workspace-account-actions span { display: none; }
-  .workspace-account-actions { gap: 4px; }
-  .workspace-account-actions button { padding: 7px 9px; }
+  .workspace-account-actions span {
+    display: none;
+  }
+  .workspace-account-actions {
+    gap: 4px;
+  }
+  .workspace-account-actions button {
+    padding: 7px 9px;
+  }
 }
 @media (prefers-reduced-motion: reduce) {
-  .loading-bar span { animation-duration: 2s; }
+  .loading-bar span {
+    animation-duration: 2s;
+  }
+}
+.sortable-header {
+  padding: 0;
+}
+.table-sort-button {
+  display: inline-flex;
+  width: 100%;
+  min-height: 42px;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  padding: 8px 6px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  white-space: nowrap;
+}
+.table-sort-button:hover,
+.table-sort-button:focus-visible {
+  background: #edf4e7;
+  color: var(--g);
+}
+#completionSortIcon {
+  min-width: 12px;
+  color: var(--g);
+  font-size: 14px;
 }

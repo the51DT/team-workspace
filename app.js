@@ -14,7 +14,7 @@ const canEdit=()=>currentUser&&['admin','editor'].includes(currentUser.role);
 let saving=false,autoSaveTimer=0,suppressAutoSave=false;
 const calendarToday=new Date();
 let selectedMonth=new Date(calendarToday.getFullYear(),calendarToday.getMonth(),1);
-let currentView='list',currentTab='active';
+let currentView='list',currentTab='active',completionSort='';
 let data=[],newRows=new Set(),deleteMode=false,edits={};const $=s=>document.querySelector(s),$$=s=>[...document.querySelectorAll(s)],esc=v=>String(v??'').replace(/[&<>\"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','\"':'&quot;'}[c]));
 const nowText=()=>{let d=new Date(),p=n=>String(n).padStart(2,'0');return `${p(d.getFullYear()%100)}.${p(d.getMonth()+1)}.${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`};
 function normalize(row){
@@ -171,7 +171,11 @@ function carryOver(){
   selectedMonth=next;$('#search').value='';$('#worker').value='all';$('#status').value='all';
   updateMonth();render();
 }
-function selected(){let q=$('#search').value.toLowerCase(),w=$('#worker').value,s=$('#status').value;return data.map((r,i)=>({r,i})).filter(x=>rowMonth(x.r)===monthKey(selectedMonth)&&(currentTab!=='active'||!['완료','보류','취소'].includes(x.r[3]))&&(!q||x.r.join(' ').toLowerCase().includes(q))&&(w==='all'||x.r[2]===w)&&(s==='all'||x.r[3]===s)).sort((a,b)=>Number(newRows.has(b.i))-Number(newRows.has(a.i))||(newRows.has(a.i)?b.i-a.i:a.i-b.i))}
+function completionDateValue(value){const normalized=dateValue(value);if(!normalized)return null;const time=Date.parse(normalized+'T00:00:00');return Number.isFinite(time)?time:null}
+function compareCompletionDate(a,b){const av=completionDateValue(a.r[4]),bv=completionDateValue(b.r[4]);if(av===null&&bv===null)return a.i-b.i;if(av===null)return 1;if(bv===null)return -1;return completionSort==='asc'?av-bv||a.i-b.i:bv-av||a.i-b.i}
+function selected(){let q=$('#search').value.toLowerCase(),w=$('#worker').value,s=$('#status').value,rows=data.map((r,i)=>({r,i})).filter(x=>rowMonth(x.r)===monthKey(selectedMonth)&&(currentTab!=='active'||!['완료','보류','취소'].includes(x.r[3]))&&(!q||x.r.join(' ').toLowerCase().includes(q))&&(w==='all'||x.r[2]===w)&&(s==='all'||x.r[3]===s));return completionSort?rows.sort(compareCompletionDate):rows.sort((a,b)=>Number(newRows.has(b.i))-Number(newRows.has(a.i))||(newRows.has(a.i)?b.i-a.i:a.i-b.i))}
+function updateCompletionSortButton(){const button=$('#completionDateSort'),header=button?.closest?.('th'),icon=$('#completionSortIcon');if(!button)return;const ascending=completionSort==='asc';button.title='완료 및 반영일 '+(ascending?'내림차순':'오름차순')+' 정렬';button.setAttribute('aria-label','완료 및 반영일 '+(ascending?'오름차순, 내림차순으로 변경':'내림차순, 오름차순으로 변경'));if(header)header.setAttribute('aria-sort',ascending?'ascending':completionSort==='desc'?'descending':'none');if(icon)icon.textContent=ascending?'↑':completionSort==='desc'?'↓':'↕'}
+function toggleCompletionSort(){completionSort=completionSort==='asc'?'desc':'asc';updateCompletionSortButton();render()}
 function cell(v,r,c,cl=''){return `<td class="editable ${cl}" contenteditable="true" data-row="${r}" data-col="${c}" spellcheck="false">${esc(v)}</td>`}
 function numberCell(v,r,c){return `<td class="number-cell"><input class="number-input" type="text" inputmode="decimal" aria-label="${c===9?'작업시간':'조정'}" data-row="${r}" data-col="${c}" value="${esc(v)}"></td>`}
 function rmsCell(v,r){let num=String(v||'').replace(/\D/g,'');return `<td class="rms-cell"><input class="rms-input" data-row="${r}" value="${esc(v)}" inputmode="numeric">${num?`<a href="http://kms-redmine.medialog.co.kr/redmine/issues/${num}" target="_blank" rel="noopener">↗</a>`:''}</td>`}
@@ -264,6 +268,8 @@ $$('[data-workspace]').forEach(b=>b.onclick=()=>switchWorkspace(b.dataset.worksp
 $('#goHome').onclick=showHome;
 window.addEventListener('popstate',restoreRoute);
 $$('[data-tab]').forEach(b=>b.onclick=()=>selectTab(b.dataset.tab));
+$("#completionDateSort").onclick=toggleCompletionSort;
+updateCompletionSortButton();
 ['search','worker','status'].forEach(x=>$('#'+x).addEventListener(x==='search'?'input':'change',render));
 $('#newTask').onclick=addRow;
 $('#carryOver').onclick=carryOver;
@@ -320,7 +326,7 @@ if(typeof ResizeObserver!=='undefined'){
 
 
 function roleName(role){return {admin:'관리자',editor:'편집자'}[role]||role}
-function applyPermissions(renderRows=true){if(!currentUser)return;$('#logoutButton').hidden=!authToken;$$('[data-login]').forEach(el=>el.hidden=Boolean(authToken));$('#currentUser').textContent=currentUser.name+(currentUser.role?' · '+roleName(currentUser.role):'');$('#usersButton').hidden=currentUser.role!=='admin';const editable=canEdit();$('#workspacePage').classList.toggle('read-only',!editable);['newTask','carryOver','saveAll','deleteToggle'].forEach(id=>$('#'+id).disabled=!editable);if(renderRows)render();}
+function applyPermissions(renderRows=true){if(!currentUser)return;$$('[data-logout]').forEach(el=>el.hidden=!authToken);$$('[data-login]').forEach(el=>el.hidden=Boolean(authToken));$('#currentUser').textContent=currentUser.name+(currentUser.role?' · '+roleName(currentUser.role):'');$('#usersButton').hidden=currentUser.role!=='admin';const editable=canEdit();$('#workspacePage').classList.toggle('read-only',!editable);['newTask','carryOver','saveAll','deleteToggle'].forEach(id=>$('#'+id).disabled=!editable);if(renderRows)render();}
 function showAuthenticated(){$('#authPage').hidden=true;$('#homePage').hidden=false;}
 async function publicRequest(payload){const response=await trackedFetch(window.APPS_SCRIPT_URL,{method:'POST',cache:'no-store',headers:{'Content-Type':'text/plain;charset=utf-8'},body:JSON.stringify(payload),signal:AbortSignal.timeout(30000)});const result=await response.json();if(!result?.ok)throw new Error(result?.error||'요청에 실패했습니다.');return result;}
 const AUTH_USER_KEY='workflow-auth-user';
@@ -349,7 +355,7 @@ function openLogin(){
 $$('[data-login]').forEach(el=>el.onclick=openLogin);
 $('#cancelLogin').onclick=()=>{showAuthenticated();restoreRoute();};
 $("#authForm").onsubmit=async(event)=>{event.preventDefault();$("#authError").textContent="";$("#loginSubmit").disabled=true;try{if(setupRequired){await publicRequest({action:"setupAdmin",username:$("#loginUsername").value,password:$("#loginPassword").value,name:$("#loginName").value,});setupRequired=false;}const result=await publicRequest({action:"login",username:$("#loginUsername").value,password:$("#loginPassword").value,});if(result.setupRequired){setupRequired=true;configureLogin();$('#loginName').focus();return;}authToken=result.token;currentUser=result.user;sessionStorage.setItem("workflow-auth-token",authToken);storeAuthUser(currentUser);showAuthenticated();applyPermissions();await restoreRoute();}catch(error){$("#authError").textContent=error.message;}finally{$("#loginSubmit").disabled=false;}};
-$("#logoutButton").onclick=async()=>{try{await requestServer({action:"logout"});}catch{}clearAuthSession();location.reload();};
+$$("[data-logout]").forEach(el=>el.onclick=async()=>{try{await requestServer({action:"logout"});}catch{}clearAuthSession();location.reload();});
 $('#usersButton').onclick=async()=>{try{const result=await requestServer({action:'listUsers'});$('#userList').innerHTML=result.users.map(u=>`<div class="user-row"><span><strong>${esc(u.name)}</strong><small>${esc(u.username)}</small></span><span class="role-badge">${esc(roleName(u.role))}</span></div>`).join('');$('#userError').textContent='';$('#usersDialog').showModal();}catch(error){alert(error.message);}};
 $('#createUserButton').onclick=async()=>{try{await requestServer({action:'createUser',name:$('#newUserName').value,username:$('#newUsername').value,password:$('#newUserPassword').value,role:$('#newUserRole').value});$('#usersDialog').close();$('#usersButton').click();}catch(error){$('#userError').textContent=error.message;}};
 $('#historyButton').onclick=async()=>{$('#historyList').textContent='수정 이력을 불러오는 중…';$('#historyDialog').showModal();try{const result=await requestServer({action:'loadAudit'});$('#historyList').innerHTML=result.entries.length?result.entries.map(e=>`<div class="history-row"><strong>${esc(e.name)} · ${esc(e.action)} · ${esc(e.task)}</strong><small>${esc(e.at)} · ${esc(roleName(e.role))} · ${esc(e.field)}</small><span class="history-change">${esc(e.before)} → ${esc(e.after)}</span></div>`).join(''):'<p>아직 수정 이력이 없습니다.</p>';}catch(error){$('#historyList').textContent=error.message;}};

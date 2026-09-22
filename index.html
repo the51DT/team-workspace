@@ -8,10 +8,18 @@
       rel="stylesheet"
       href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard/dist/web/static/pretendard.css"
     />
-    <link rel="stylesheet" href="styles.css?v=20260921-7" />
+    <link rel="stylesheet" href="styles.css?v=20260922-1" />
   </head>
   <body>
-    <div id="loadingBar" class="loading-bar" role="progressbar" aria-label="불러오는 중" aria-hidden="true"><span></span></div>
+    <div
+      id="loadingBar"
+      class="loading-bar"
+      role="progressbar"
+      aria-label="불러오는 중"
+      aria-hidden="true"
+    >
+      <span></span>
+    </div>
     <div id="authPage" class="auth-page" hidden>
       <form id="authForm" class="auth-card">
         <p class="home-brand">▥ WORK<span>FLOW</span></p>
@@ -40,6 +48,7 @@
       <div class="account-actions">
         <button type="button" data-login>로그인</button>
         <button id="usersButton" type="button" hidden>계정 관리</button>
+        <button type="button" data-logout hidden>로그아웃</button>
       </div>
       <div class="home-content">
         <p class="home-brand">▥ WORK<span>FLOW</span></p>
@@ -94,7 +103,9 @@
           <div class="workspace-account-actions">
             <button id="historyButton" type="button">수정 이력</button>
             <button type="button" data-login>로그인</button>
-            <button id="logoutButton" type="button" hidden>로그아웃</button>
+            <button id="logoutButton" type="button" data-logout hidden>
+              로그아웃
+            </button>
             <span id="currentUser"></span>
           </div>
           <i>CX</i>
@@ -143,7 +154,13 @@
                   >
                     저장
                   </button>
-                  <button id="exportCsv" type="button" title="현재 표에 표시된 내용을 CSV 파일로 저장합니다.">CSV 저장</button>
+                  <button
+                    id="exportCsv"
+                    type="button"
+                    title="현재 표에 표시된 내용을 CSV 파일로 저장합니다."
+                  >
+                    CSV 저장
+                  </button>
                 </div>
               </div>
             </div>
@@ -184,7 +201,19 @@
                     <th>RMS</th>
                     <th>작업자</th>
                     <th>단계</th>
-                    <th>완료 &amp; 반영일</th>
+                    <th class="sortable-header" aria-sort="none">
+                      <button
+                        id="completionDateSort"
+                        class="table-sort-button"
+                        type="button"
+                        title="완료 및 반영일 오름차순 정렬"
+                      >
+                        완료 &amp; 반영일
+                        <span id="completionSortIcon" aria-hidden="true"
+                          >↕</span
+                        >
+                      </button>
+                    </th>
                     <th>업무제목</th>
                     <th>비고</th>
                     <th>작업시간</th>

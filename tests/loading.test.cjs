@@ -318,3 +318,19 @@ test('CSV exports visible table values including controls, quotes, newlines and 
  assert.ok(csv.startsWith('\uFEFF'));assert.match(csv,/"9\/19","00123","작업자 A"/);
  assert.ok(csv.includes('"쉼표, 따옴표 ""내용""\n다음 줄"'));assert.ok(!csv.includes('↗'));
 });
+test('completion date sort toggles ascending and descending with blanks last',async()=>{
+ const early=[...task];early[4]='2026-09-02';early[5]='이른 업무';
+ const late=[...task];late[4]='2026-09-28';late[5]='늦은 업무';
+ const blank=[...task];blank[4]='';blank[5]='날짜 없음';
+ const page=app(()=>({ok:true,tasks:[late,blank,early]}));await page.ready;
+ page.run("completionSort='asc'");
+ assert.equal(page.run("selected().map(x=>x.r[5]).join(',')"),'이른 업무,늦은 업무,날짜 없음');
+ page.run('toggleCompletionSort()');
+ assert.equal(page.run("selected().map(x=>x.r[5]).join(',')"),'늦은 업무,이른 업무,날짜 없음');
+});
+
+test('home and workspace both expose logout controls',()=>{
+ const html=fs.readFileSync(require('node:path').join(__dirname,'../index.html'),'utf8');
+ assert.equal((html.match(/data-logout/g)||[]).length,2);
+ assert.match(html,/account-actions[\s\S]*data-logout/);
+});
