@@ -11,7 +11,7 @@ function visibleWorkers(){return workers}
 let editPrefix='',serverConnected=false;
 let authToken='',currentUser=null,setupRequired=false;
 const canEdit=()=>currentUser&&['admin','editor'].includes(currentUser.role);
-let saving=false,autoSaveTimer=0,suppressAutoSave=false;
+let saving=false,suppressAutoSave=false;
 const calendarToday=new Date();
 let selectedMonth=new Date(calendarToday.getFullYear(),calendarToday.getMonth(),1);
 let currentView='list',currentTab='active',completionSort='';
@@ -91,18 +91,16 @@ async function load(){
     $('#saveStatus').textContent='● 조회 실패: '+reason;
   }finally{loading=false;lockControls(false);$('#saveAll').disabled=!serverConnected||Boolean(currentUser&&!canEdit());$('#refresh').textContent='↻';$('#refresh').setAttribute('aria-busy','false')}
 }
-async function saveAll(options={}){
-  const automatic=options?.automatic===true;
-  if(currentUser&&!canEdit()){if(!automatic)alert('수정하려면 편집 권한이 있는 계정으로 로그인해 주세요.');return false;}
-  if(autoSaveTimer){clearTimeout(autoSaveTimer);autoSaveTimer=0;}
+async function saveAll(){
+  if(currentUser&&!canEdit()){alert('수정하려면 편집 권한이 있는 계정으로 로그인해 주세요.');return false;}
   if(loading||saving)return false;
-  if(!serverConnected){if(!automatic)alert('서버 데이터를 먼저 불러와 주세요.');return false}
+  if(!serverConnected){alert('서버 데이터를 먼저 불러와 주세요.');return false}
   suppressAutoSave=true;document.activeElement?.blur?.();suppressAutoSave=false;
   const incomplete=data.findIndex(r=>!r[2].trim()||!r[5].trim());
   if(incomplete!==-1){
     const row=data[incomplete],missing=[!row[2].trim()?'작업자':'',!row[5].trim()?'업무제목':''].filter(Boolean).join(', ');
     const message=(incomplete+1)+'번째 업무 (등록일 '+(row[0]||'없음')+', '+(row[5]||'제목 없음')+')의 '+missing+'을 입력해 주세요.';
-    $('#saveStatus').textContent=automatic?'● 자동 저장 대기: '+missing+' 입력 필요':'● 저장 취소: '+message;if(!automatic)alert(message);return false;
+    $('#saveStatus').textContent='● 저장 취소: '+message;alert(message);return false;
   }
   saving=true;lockControls(true);$('#saveStatus').textContent='● 저장 중…';
   const orderedRows=[...data.filter((_,i)=>!newRows.has(i)),...data.filter((_,i)=>newRows.has(i))];
@@ -115,9 +113,9 @@ async function saveAll(options={}){
     const result=await requestServer({action:'save',tasks});
     data=orderedRows.map((row,i)=>[tasks[i][0],...row.slice(1)]);newRows.clear();edits={};try{localStorage.removeItem(storageKey(KEY))}catch{}
     cacheSnapshot(tasks);
-    $('#saveStatus').textContent=automatic?'● 자동 저장 완료 · '+new Date().toLocaleTimeString('ko-KR'):'● Apps Script 저장 완료';
+    $('#saveStatus').textContent='● Apps Script 저장 완료';
     render();return true;
-  }catch(error){const reason=error.name==='TimeoutError'?'서버 응답 시간이 초과되었습니다. 입력 내용은 유지되어 있습니다.':error.message;$('#saveStatus').textContent='● 저장 실패: '+reason;if(!automatic)alert('저장 실패: '+reason);return false}
+  }catch(error){const reason=error.name==='TimeoutError'?'서버 응답 시간이 초과되었습니다. 입력 내용은 유지되어 있습니다.':error.message;$('#saveStatus').textContent='● 저장 실패: '+reason;alert('저장 실패: '+reason);return false}
   finally{saving=false;lockControls(false)}
 }
 function filters(){$('#worker').innerHTML='<option value="all">전체 작업자</option>'+visibleWorkers().map(x=>`<option>${esc(x)}</option>`).join('');$('#status').innerHTML='<option value="all">전체 단계</option>'+statuses.map(x=>`<option>${esc(x)}</option>`).join('')}
@@ -184,13 +182,7 @@ function dateCell(v,r){return `<td class="date-cell"><input type="date" class="d
 function parsedHours(value){const normalized=String(value??"").trim().replace(",",".").replace(/\s*h(?:ours?)?$/i,"");const hours=Number(normalized);return Number.isFinite(hours)?hours:0;}
 function renderWorkSummary(rows){const totals=new Map();rows.forEach(({r})=>{const worker=String(r[2]||"").trim();if(worker)totals.set(worker,(totals.get(worker)||0)+parsedHours(r[9]));});const order=[...visibleWorkers(),...totals.keys()].filter((name,index,all)=>totals.has(name)&&all.indexOf(name)===index);const summary=$("#workSummary");summary.hidden=!order.length;summary.innerHTML=order.map((name,index)=>{const total=totals.get(name);return`<article ${order.length===1?'id="publishingWorkSummary" ':""}class="summary-card summary-work-card" data-worker="${esc(name)}"><span class="summary-label">작업시간</span><strong class="worker-name">${esc(name)}</strong><div class="work-time-value"><strong class="publishing-total-hours">${esc(total.toFixed(3))}</strong><span class="hour-unit">h</span></div></article>`;}).join("");}
 function render(){let a=selected();renderWorkSummary(a);$("#rows").innerHTML=a.map(({r,i})=>`<tr data-index="${i}" class="${newRows.has(i)?"new-row":""}"><td class="locked">${deleteMode?`<input class="row-check" type="checkbox" data-check="${i}" aria-label="행 선택">`:esc(registrationLabel(r[0]))}</td>${rmsCell(r[1],i)}${selectCell(r[2],i,2,["",...new Set([...visibleWorkers(),...(r[2]?[r[2]]:[])])],"worker-select")}${selectCell(r[3],i,3,statuses,"status-select")}${dateCell(r[4],i)}${cell(r[5],i,5,"task")}${cell(r[6],i,6)}${numberCell(r[9],i,9)}${numberCell(r[10],i,10)}</tr>`).join("");$("#count").textContent=`총 ${a.length}개의 업무`;bind();if(currentUser&&!canEdit()){$$("#rows input, #rows select").forEach(el=>el.disabled=true);$$("#rows [contenteditable]").forEach(el=>el.setAttribute("contenteditable","false"));}$$(".row-check").forEach((x)=>(x.onchange=updateDeleteButton));updateDeleteButton();}
-function scheduleAutoSave(){
- if(suppressAutoSave||!serverConnected||(currentUser&&!canEdit())||typeof document.getElementById!=='function')return;
- if(autoSaveTimer)clearTimeout(autoSaveTimer);
- $('#saveStatus').textContent='● 자동 저장 대기 중…';
- autoSaveTimer=setTimeout(async()=>{autoSaveTimer=0;if(loading||saving){scheduleAutoSave();return}await saveAll({automatic:true})},700);
-}
-function remember(r,c,v){data[r][c]=v;$('#saveStatus').textContent='● 변경사항 자동 저장 예정';if(!newRows.has(r)){edits[`${editPrefix}${r}:${c}`]=v;try{localStorage.setItem(storageKey(KEY),JSON.stringify(edits))}catch{}}scheduleAutoSave()}
+function remember(r,c,v){data[r][c]=v;$('#saveStatus').textContent='● 변경사항 있음 · 저장 버튼을 눌러 주세요';if(!newRows.has(r)){edits[`${editPrefix}${r}:${c}`]=v;try{localStorage.setItem(storageKey(KEY),JSON.stringify(edits))}catch{}}}
 function editableText(element){const text=element.innerText??element.textContent;return +element.dataset.col===6?text:text.trim()}
 function bind(){$$(".number-input").forEach((x)=>(x.oninput=()=>{remember(+x.dataset.row,+x.dataset.col,x.value);renderWorkSummary(selected());}));$$(".rms-input").forEach((x)=>(x.onchange=()=>{remember(+x.dataset.row,1,x.value.trim());render();}));$$(".date-input").forEach((x)=>(x.onchange=()=>remember(+x.dataset.row,4,x.value)));$$("#rows [contenteditable]").forEach((x)=>{x.oninput=()=>remember(+x.dataset.row,+x.dataset.col,editableText(x));x.onkeydown=(e)=>{if(e.key==="Enter"&&!e.isComposing&&+x.dataset.col!==6){e.preventDefault();x.blur();}};x.onfocus=()=>(x.dataset.old=editableText(x));x.onblur=()=>{let v=editableText(x),r=+x.dataset.row,c=+x.dataset.col;if(v!==x.dataset.old){remember(r,c,v);x.classList.add("saved");setTimeout(()=>x.classList.remove("saved"),700);}};});$$(".cell-select").forEach((x)=>(x.onchange=()=>{let r=+x.dataset.row,c=+x.dataset.col,v=x.value;remember(r,c,v);if(c===3&&v==="진행중"&&!data[r][7])remember(r,7,nowText());if(c===3&&v==="완료")remember(r,8,nowText());render();}));}
 function addRow(){let d=new Date(),day=d.getFullYear()===selectedMonth.getFullYear()&&d.getMonth()===selectedMonth.getMonth()?d.getDate():1;data.push([`${selectedMonth.getFullYear()}-${String(selectedMonth.getMonth()+1).padStart(2,'0')}-${String(day).padStart(2,'0')}`,'','','배정','','','','','','','']);newRows.add(data.length-1);deleteMode=false;$('#saveStatus').textContent='● 새 업무 저장 필요';$('#search').value='';$('#worker').value='all';$('#status').value='all';render();requestAnimationFrame(()=>$('#rows tr:first-child .worker-select')?.focus())}
@@ -202,17 +194,12 @@ async function deleteSelected(){
  if(loading||saving)return;
  const ids=$$('.row-check:checked').map(x=>+x.dataset.check);
  if(!ids.length){alert('삭제할 업무를 선택해 주세요.');return}
- if(!confirm(ids.length+'개의 업무를 삭제하고 현재 변경사항을 서버에 저장하시겠습니까?'))return;
- const previousData=data.map(row=>[...row]),previousNewRows=new Set(newRows);
+ if(!confirm(ids.length+'개의 업무를 삭제하시겠습니까? 서버 반영은 저장 버튼을 눌러야 완료됩니다.'))return;
  ids.forEach(i=>{const deleted=monthMeta(data[i]);if(!deleted)return;data.forEach(row=>{const m=monthMeta(row);if(m&&m.id===deleted.id&&m.month<deleted.month){m.skipped=[...new Set([...(m.skipped||[]),deleted.month])];row[7]=MONTH_META+JSON.stringify(m)}})});
  const pending=new Set([...newRows].map(i=>data[i]));
  data=data.filter((_,i)=>!ids.includes(i));
  newRows=new Set(data.flatMap((r,i)=>pending.has(r)?[i]:[]));
- if(await saveAll()){
-  deleteMode=false;$('#saveStatus').textContent='● 삭제 및 서버 저장 완료';
- }else{
-  data=previousData;newRows=previousNewRows;
- }
+ deleteMode=false;$('#saveStatus').textContent='● 삭제 변경사항 있음 · 저장 버튼을 눌러 주세요';
  render();
 }
 

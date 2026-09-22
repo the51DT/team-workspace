@@ -43,12 +43,15 @@ test('load uses Apps Script tasks and maps nine columns without losing work hour
   assert.equal(page.requests[0].payload.action,'load');assert.equal(page.run('data[0][9]'),'1.5');
   assert.match(page.element('#rows').innerHTML,/업무 제목/);assert.equal(page.run('serverConnected'),true);
 });
-test('completed edits are saved automatically after the debounce',async()=>{
+test('edits remain local until the save button is used',async()=>{
  let saved;const page=app(p=>{if(p.action==='save'){saved=p.tasks;return {ok:true}}return {ok:true,tasks:[task]}});await page.ready;
- page.run("document.getElementById=()=>true;currentUser={role:'editor'};remember(0,5,'자동 저장 업무')");
+ const before=page.requests.length;
+ page.run("currentUser={role:'editor'};remember(0,5,'수동 저장 업무')");
  await new Promise(resolve=>setTimeout(resolve,850));
- assert.equal(saved[0][5],'자동 저장 업무');
- assert.match(page.element('#saveStatus').textContent,/자동 저장 완료/);
+ assert.equal(saved,undefined);assert.equal(page.requests.length,before);
+ assert.match(page.element('#saveStatus').textContent,/저장 버튼/);
+ await page.element('#saveAll').onclick();
+ assert.equal(saved[0][5],'수동 저장 업무');
 });
 test('save sends the full nine-column task list and reload retrieves it',async()=>{
   let tasks=[task];const page=app(p=>{if(p.action==='save'){tasks=p.tasks;return {ok:true,updatedAt:'saved'}}return {ok:true,tasks}});await page.ready;
@@ -150,13 +153,13 @@ test('refresh button fetches changed server rows and clears stale search',async(
 
 
 
-test('delete persists immediately and failed deletion restores local rows',async()=>{
- for(const fail of [false,true]){
-  let tasks=[task];const page=app(p=>{if(p.action==='save'){if(fail)return {ok:false,error:'저장 거부'};tasks=p.tasks;return {ok:true}}return {ok:true,tasks}});await page.ready;
-  page.run("document.querySelectorAll=s=>s==='.row-check:checked'?[{dataset:{check:'0'}}]:[];deleteMode=true");
-  await page.run('deleteSelected()');assert.equal(page.run('data.length'),fail?1:0);
-  await page.run('load()');assert.equal(page.run('data.length'),fail?1:0);
- }
+test('deletion remains local until the save button is used',async()=>{
+ let tasks=[task];const page=app(p=>{if(p.action==='save'){tasks=p.tasks;return {ok:true}}return {ok:true,tasks}});await page.ready;
+ page.run("document.querySelectorAll=s=>s==='.row-check:checked'?[{dataset:{check:'0'}}]:[];deleteMode=true");
+ const before=page.requests.length;await page.run('deleteSelected()');
+ assert.equal(page.run('data.length'),0);assert.equal(page.requests.length,before);assert.equal(tasks.length,1);
+ assert.match(page.element('#saveStatus').textContent,/저장 버튼/);
+ await page.element('#saveAll').onclick();assert.equal(tasks.length,0);
 });
 
 test('legacy statuses migrate and monthly copies persist without duplicating after edits',async()=>{
