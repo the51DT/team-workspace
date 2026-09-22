@@ -387,3 +387,23 @@ test('expired login falls back to public read without enabling editing',async()=
  assert.equal(page.run('serverConnected'),true);assert.equal(page.run('authToken'),'');
  assert.equal(page.element('#saveAll').disabled,true);assert.equal(page.requests.at(-1).method,'GET');
 });
+
+
+test('home guide appears only on home, once per Korean calendar day including after reload',async()=>{
+ const storage=new Map();
+ const page=app(()=>({ok:true,tasks:[]}),storage,'',true);await page.ready;
+ page.run("guideCount=0;document.querySelector('#guideDialog').showModal=function(){this.open=true;guideCount++};document.querySelector('#guideDialog').close=function(){this.open=false}");
+ page.run("document.querySelector('#homePage').hidden=true;showHomeGuide(new Date('2026-09-23T01:00:00Z'))");assert.equal(page.run('guideCount'),0);
+ page.run("document.querySelector('#homePage').hidden=false;showHomeGuide(new Date('2026-09-23T01:00:00Z'));closeGuide();showHomeGuide(new Date('2026-09-23T14:59:59Z'))");
+ assert.equal(page.run('guideCount'),1);
+ page.run("guideSeenDay='';showHomeGuide(new Date('2026-09-23T14:59:59Z'))");assert.equal(page.run('guideCount'),1);
+ page.run("showHomeGuide(new Date('2026-09-23T15:00:00Z'))");assert.equal(page.run('guideCount'),2);
+ page.run('openLogin()');assert.equal(page.element('#guideDialog').open,false);page.run("guideSeenDay='';localStorage.removeItem(GUIDE_SEEN_KEY);showHomeGuide(new Date('2026-09-24T01:00:00Z'))");assert.equal(page.run('guideCount'),2);
+});
+
+test('home guide stops at November 1 Korean time and works when browser storage is unavailable',async()=>{
+ const page=app(()=>({ok:true,tasks:[]}),new Map(),'',true);await page.ready;
+ page.run("guideCount=0;document.querySelector('#homePage').hidden=false;document.querySelector('#guideDialog').showModal=function(){this.open=true;guideCount++};document.querySelector('#guideDialog').close=function(){this.open=false};localStorage.getItem=()=>{throw Error('blocked')};localStorage.setItem=()=>{throw Error('blocked')}");
+ page.run("showHomeGuide(new Date('2026-10-31T14:59:59Z'));closeGuide();showHomeGuide(new Date('2026-10-31T14:59:59Z'))");assert.equal(page.run('guideCount'),1);
+ page.run("showHomeGuide(new Date('2026-10-31T15:00:00Z'))");assert.equal(page.run('guideCount'),1);
+});

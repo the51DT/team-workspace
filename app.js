@@ -251,15 +251,15 @@ function setRoute(key){
  const hash=key?'#'+key:'';
  if(window.location.hash!==hash)window.history.pushState(null,'',window.location.pathname+window.location.search+hash);
 }
-function showWorkspacePage(key){
+function showWorkspacePage(key){closeGuide();
  homeVisible=false;$('#homePage').hidden=true;$('#workspacePage').hidden=false;setRoute(key);
 }
-function showHome(){
+function showHome(){closeGuide();
  if(saving)return;
  if(loading)leavePendingLoad();
  document.activeElement?.blur?.();
  homeVisible=true;$('#homePage').hidden=false;$('#workspacePage').hidden=true;
- document.title='유플러스 업무 관리';setRoute('');
+ document.title='유플러스 업무 관리';setRoute('');showHomeGuide();
 }
 async function restoreRoute(){
  const key=window.location.hash.slice(1);
@@ -330,7 +330,7 @@ if(typeof ResizeObserver!=='undefined'){
 
 function roleName(role){return {admin:'관리자',editor:'편집자'}[role]||role}
 function applyPermissions(renderRows=true){if(!currentUser)return;$$('[data-logout]').forEach(el=>el.hidden=!authToken);$$('[data-login]').forEach(el=>el.hidden=Boolean(authToken));$('#currentUser').textContent=currentUser.name+(currentUser.role?' · '+roleName(currentUser.role):'');$('#usersButton').hidden=currentUser.role!=='admin';const editable=canEdit();$('#workspacePage').classList.toggle('read-only',!editable);['newTask','carryOver','saveAll','deleteToggle'].forEach(id=>$('#'+id).disabled=!editable);if(renderRows)render();}
-function showAuthenticated(){$('#authPage').hidden=true;$('#homePage').hidden=false;}
+function showAuthenticated(){closeGuide();$('#authPage').hidden=true;$('#homePage').hidden=false;}
 async function publicRequest(payload){const response=await trackedFetch(window.APPS_SCRIPT_URL,{method:'POST',cache:'no-store',headers:{'Content-Type':'text/plain;charset=utf-8'},body:JSON.stringify(payload),signal:AbortSignal.timeout(30000)});const result=await response.json();if(!result?.ok)throw new Error(result?.error||'요청에 실패했습니다.');return result;}
 const AUTH_USER_KEY='workflow-auth-user';
 function storeAuthUser(user){sessionStorage.setItem(AUTH_USER_KEY,JSON.stringify(user));}
@@ -350,7 +350,20 @@ function configureLogin(){
  $('#nameField').hidden=!setupRequired;$('#loginName').required=setupRequired;
  $('#loginSubmit').textContent=setupRequired?'관리자 생성':'로그인';
 }
-function openLogin(){
+const GUIDE_SEEN_KEY='workflow-login-guide-day';
+let guideSeenDay='';
+function showHomeGuide(now=new Date()){
+ if($('#homePage').hidden||!$('#authPage').hidden||!homeVisible)return;
+ const day=new Date(now.getTime()+9*60*60*1000).toISOString().slice(0,10);
+ if(day>'2026-10-31'||guideSeenDay===day)return;
+ try{if(localStorage.getItem(GUIDE_SEEN_KEY)===day)return;}catch{}
+ const dialog=$('#guideDialog');
+ if(!dialog||typeof dialog.showModal!=='function'||dialog.open)return;
+ dialog.showModal();guideSeenDay=day;
+ try{localStorage.setItem(GUIDE_SEEN_KEY,day);}catch{}
+}
+function closeGuide(){const dialog=$('#guideDialog');if(dialog?.open)dialog.close();}
+function openLogin(){closeGuide();
  $('#authPage').hidden=false;$('#homePage').hidden=true;$('#workspacePage').hidden=true;
  $('#authError').textContent='';$('#loginSubmit').disabled=false;configureLogin();
  $('#loginUsername').focus();

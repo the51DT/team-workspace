@@ -1252,3 +1252,11 @@ dialog::backdrop {
 .table .date-cell.review-requested-date .date-input {
   background: #ffe0e0;
 }
+
+#guideDialog { width: min(620px, calc(100vw - 32px)); }
+.guide-card { width: 100%; }
+.guide-card #guideIntro { color: #52634d; margin: 4px 0 20px; }
+.guide-steps { padding-left: 24px; margin: 0; }
+.guide-steps li { padding-left: 4px; margin-bottom: 16px; }
+.guide-steps p { margin: 5px 0 0; line-height: 1.65; font-size: 14px; color: #52634d; }
+.guide-note { font-size: 12px; line-height: 1.5; color: #65705f; margin-top: 20px; }

@@ -9,7 +9,7 @@
       href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard/dist/web/static/pretendard.css"
       media="print" onload="this.media='all'"
     />
-    <link rel="stylesheet" href="styles.css?v=20260923-1" />
+    <link rel="stylesheet" href="styles.css?v=20260923-2" />
   </head>
   <body>
     <div
@@ -236,6 +236,22 @@
         </section>
       </main>
     </div>
+    <dialog id="guideDialog" aria-labelledby="guideTitle" aria-describedby="guideIntro">
+      <form method="dialog" class="dialog-card guide-card">
+        <header><h2 id="guideTitle">업무 관리 사용 가이드</h2><button value="close" aria-label="사용 가이드 닫기">×</button></header>
+        <p id="guideIntro">조회는 자유롭게, 수정 후에는 꼭 저장해 주세요.</p>
+        <ol class="guide-steps">
+          <li><strong>업무 공간 선택</strong><p>CX · 기업 · 알닷 중 담당 업무 공간을 선택하세요. 로그인 없이 업무와 수정 이력을 볼 수 있습니다.</p></li>
+          <li><strong>로그인 후 작성·수정</strong><p>관리자·편집자 계정으로 로그인하면 새 업무를 추가하거나 표의 내용을 수정할 수 있습니다. 새 업무는 작업자와 업무제목을 모두 입력하세요.</p></li>
+          <li><strong>변경 후 저장 버튼 클릭</strong><p>작성·수정·삭제·이월한 내용은 <b>저장</b> 버튼을 눌러 반영하세요. 저장 완료 문구를 확인한 뒤 페이지를 닫으세요. 저장 실패 시 입력 내용을 확인하고 다시 저장해 주세요.</p></li>
+          <li><strong>월·검색·필터로 찾기</strong><p>월을 이동하거나 업무명·작업자·RMS를 검색하세요. 진행중 / 전체 탭과 작업자·단계 필터로 목록을 좁힐 수 있습니다.</p></li>
+          <li><strong>반영 일정 확인</strong><p>검수요청 단계에서는 운영 반영일 칸이 분홍색으로 표시됩니다.</p></li>
+          <li><strong>이력 확인과 CSV 저장</strong><p>수정 이력에서 수정자와 변경 내용을 확인하세요. CSV 저장은 현재 검색·필터가 적용된 표를 내려받습니다. 최신 목록은 새로고침(↻)으로 확인하세요.</p></li>
+        </ol>
+        <p class="guide-note">이 안내는 메인페이지에서 하루 한 번, 2026년 10월 31일까지 표시됩니다.</p>
+        <button value="confirm" autofocus>확인했어요 · 시작하기</button>
+      </form>
+    </dialog>
     <dialog id="usersDialog">
       <form method="dialog" class="dialog-card">
         <header>
@@ -270,6 +286,6 @@
       </form>
     </dialog>
     <script src="config.js?v=20260922-1"></script>
-    <script src="app.js?v=20260923-1"></script>
+    <script src="app.js?v=20260923-3"></script>
   </body>
 </html>
