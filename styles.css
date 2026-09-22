@@ -1248,3 +1248,7 @@ dialog::backdrop {
   color: var(--g);
   font-size: 14px;
 }
+
+.table .date-cell.review-requested-date .date-input {
+  background: #ffe0e0;
+}
