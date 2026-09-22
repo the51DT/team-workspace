@@ -350,3 +350,40 @@ test('enterprise STG date persists separately and adjustment is only visible in 
  assert.equal(stores.enterprise[0].length,12);assert.equal(page.run('data[0][11]'),'2026-09-25');assert.equal(page.run('data[0][4]'),'2026-09-20');
  await page.run("switchWorkspace('aldot')");assert.doesNotMatch(page.element('#rows').innerHTML,/STG 반영일|aria-label="조정"/);
 });
+
+
+test('slow workspace response does not block navigation or overwrite the active workspace',async()=>{
+ let finishCx;const pending=new Promise(resolve=>finishCx=resolve);
+ const page=app(p=>p.workspace==='cx'?pending:{ok:true,workspace:p.workspace,tasks:[]});
+ await new Promise(resolve=>setImmediate(resolve));
+ await page.run("switchWorkspace('enterprise')");
+ assert.equal(page.run('currentWorkspace'),'enterprise');assert.equal(page.run('serverConnected'),true);
+ finishCx({ok:true,workspace:'cx',tasks:[task]});await page.ready;
+ assert.equal(page.run('data.length'),0);assert.equal(page.run('serverConnected'),true);
+ assert.match(page.run("localStorage.getItem(snapshotKey('cx'))"),/업무 제목/);
+});
+
+test('returning to a loading workspace reuses its pending request',async()=>{
+ let finish;const pending=new Promise(resolve=>finish=resolve);
+ const page=app(()=>pending);await new Promise(resolve=>setImmediate(resolve));
+ page.run('showHome()');assert.equal(page.element('#homePage').hidden,false);
+ const back=page.run("switchWorkspace('cx')");assert.equal(page.requests.length,1);
+ finish({ok:true,workspace:'cx',tasks:[task]});await Promise.all([page.ready,back]);
+ assert.equal(page.run('data.length'),1);assert.equal(page.run('loading'),false);
+});
+
+test('failed request from a previous workspace cannot disconnect the current one',async()=>{
+ let fail;const pending=new Promise((_resolve,reject)=>fail=reject);
+ const page=app(p=>p.workspace==='cx'?pending:{ok:true,workspace:p.workspace,tasks:[]});
+ await new Promise(resolve=>setImmediate(resolve));await page.run("switchWorkspace('aldot')");
+ fail(new TypeError('offline'));await page.ready;
+ assert.equal(page.run('serverConnected'),true);assert.equal(page.requests.length,2);
+});
+
+
+test('expired login falls back to public read without enabling editing',async()=>{
+ const page=app(p=>p.token?{ok:false,error:'로그인이 만료되었습니다.'}:{ok:true,workspace:p.workspace,tasks:[task]});await page.ready;
+ page.run("authToken='expired';currentUser={name:'편집자',role:'editor'}");await page.run('load()');
+ assert.equal(page.run('serverConnected'),true);assert.equal(page.run('authToken'),'');
+ assert.equal(page.element('#saveAll').disabled,true);assert.equal(page.requests.at(-1).method,'GET');
+});

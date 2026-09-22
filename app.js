@@ -24,8 +24,8 @@ function normalize(row){
   values[3]=values[3]==='진행'?'진행중':values[3]==='이월'?'취소':values[3];
   return values;
 }
-function snapshotKey(){return 'workflow-snapshot-v1:'+window.APPS_SCRIPT_URL+':'+currentWorkspace}
-function cacheSnapshot(tasks){try{localStorage.setItem(snapshotKey(),JSON.stringify({tasks,savedAt:Date.now()}))}catch{}}
+function snapshotKey(workspace=currentWorkspace){return 'workflow-snapshot-v1:'+window.APPS_SCRIPT_URL+':'+workspace}
+function cacheSnapshot(tasks,workspace=currentWorkspace){try{localStorage.setItem(snapshotKey(workspace),JSON.stringify({tasks,savedAt:Date.now()}))}catch{}}
 function previewSnapshot(){
  if(data.length)return false;
  try{
@@ -39,26 +39,36 @@ function previewSnapshot(){
 let pendingRequests=0;
 function updateLoadingBar(delta){pendingRequests=Math.max(0,pendingRequests+delta);const bar=$('#loadingBar');if(!bar)return;const active=pendingRequests>0;bar.classList?.toggle('active',active);bar.setAttribute?.('aria-hidden',String(!active))}
 async function trackedFetch(url,options){updateLoadingBar(1);try{return await fetch(url,options)}finally{updateLoadingBar(-1)}}
-let loading=false;
-async function requestServer(payload){
+let loading=false,loadVersion=0;
+const pendingLoads=new Map();
+function leavePendingLoad(){loadVersion++;loading=false;lockControls(false);}
+function requestServer(payload){
+ if(payload.action!=='load')return sendRequest(payload);
+ const key=currentWorkspace+':'+authToken;
+ if(!pendingLoads.has(key)){const promise=sendRequest(payload).finally(()=>pendingLoads.delete(key));pendingLoads.set(key,promise);}
+ return pendingLoads.get(key);
+}
+async function sendRequest(payload){
+  const workspace=currentWorkspace;
   if(!window.APPS_SCRIPT_URL)throw new Error('config.js에 Apps Script 웹 앱 URL을 설정해 주세요.');
   const publicRead=payload.action==='loadAudit'||(payload.action==='load'&&!authToken);
   const url=new URL(window.APPS_SCRIPT_URL);
-  if(publicRead){url.searchParams.set('action',payload.action);url.searchParams.set('workspace',currentWorkspace);}
-  const response=await trackedFetch(url.toString(),{method:publicRead?'GET':'POST',cache:'no-store',...(!publicRead?{headers:{'Content-Type':'text/plain;charset=utf-8'},body:JSON.stringify({...payload,workspace:currentWorkspace,token:authToken})}:{}),signal:AbortSignal.timeout(payload.action==='load'?60000:30000)});
+  if(publicRead){url.searchParams.set('action',payload.action);url.searchParams.set('workspace',workspace);}
+  const response=await trackedFetch(url.toString(),{method:publicRead?'GET':'POST',cache:'no-store',...(!publicRead?{headers:{'Content-Type':'text/plain;charset=utf-8'},body:JSON.stringify({...payload,workspace:workspace,token:authToken})}:{}),signal:AbortSignal.timeout(payload.action==='load'?60000:30000)});
   if(!response.ok)throw new Error('서버 응답 오류 (HTTP '+response.status+')');
   let result;
-  try{result=await response.json()}catch{throw new Error('서버가 JSON을 반환하지 않습니다. 웹 앱 배포와 접근 권한을 확인해 주세요.')}
+  try{result=await response.json()}catch(error){if(['TimeoutError','AbortError'].includes(error.name))throw error;throw new Error('서버가 JSON을 반환하지 않습니다. 웹 앱 배포와 접근 권한을 확인해 주세요.')}
   if(!result?.ok){
     if(result?.error==='POST 로그인 요청을 사용해 주세요.')throw new Error('서버에 이전 조회 코드가 배포되어 있습니다. Code.gs를 반영하고 배포 관리에서 새 버전으로 배포한 뒤 config.js의 /exec URL을 확인해 주세요.');
     throw new Error(result?.error||result?.message||'Apps Script 요청에 실패했습니다.');
   }
-  if(['load','save','saveWorkers','loadAudit'].includes(payload.action)&&((result.workspace&&result.workspace!==currentWorkspace)||(currentWorkspace!=='cx'&&result.workspace!==currentWorkspace)))throw new Error('기업·알닷 저장소를 사용하려면 수정된 Code.gs를 Apps Script에 새 버전으로 배포해 주세요.');
+  if(['load','save','saveWorkers','loadAudit'].includes(payload.action)&&((result.workspace&&result.workspace!==workspace)||(workspace!=='cx'&&result.workspace!==workspace)))throw new Error('기업·알닷 저장소를 사용하려면 수정된 Code.gs를 Apps Script에 새 버전으로 배포해 주세요.');
   return result;
 }
 function lockControls(busy){['newTask','carryOver','saveAll','deleteToggle'].forEach(id=>{const el=$("#"+id);if(el)el.disabled=busy||!canEdit()});const refresh=$("#refresh");if(refresh)refresh.disabled=busy;$("#rows").inert=busy}
 async function load(){
   if(loading||saving)return;
+  const version=++loadVersion,workspace=currentWorkspace;
   loading=true;lockControls(true);serverConnected=false;
 
   $('#refresh').textContent='…';
@@ -69,14 +79,18 @@ async function load(){
     let result;
     try{result=await requestServer({action:'load'})}
     catch(error){
-      if(!['TimeoutError','AbortError','TypeError'].includes(error.name)&&!/timed? ?out/i.test(error.message))throw error;
+      if(version!==loadVersion)return;
+      if(authToken&&/로그인이 (필요|만료)/.test(error.message)){
+        clearAuthSession();currentUser=guestUser;applyPermissions(false);
+      }else if(!['TimeoutError','AbortError','TypeError'].includes(error.name)&&!/timed? ?out/i.test(error.message))throw error;
 
       $('#saveStatus').textContent='● 서버 응답이 지연되어 다시 불러오는 중…';
       result=await requestServer({action:'load'});
     }
     if(!Array.isArray(result.tasks))throw new Error('load 응답에 tasks가 없습니다. 제공하신 Apps Script 코드를 새 버전으로 배포해 주세요.');
     const rows=result.tasks.map(normalize);
-    cacheSnapshot(result.tasks);
+    cacheSnapshot(result.tasks,workspace);
+    if(version!==loadVersion)return;
     data=rows;newRows.clear();edits={};deleteMode=false;
     $('#deleteToggle').textContent='삭제';
     workers=[...new Set([...(Array.isArray(result.workers)?result.workers:[]),...data.map(r=>r[2])].filter(Boolean))];
@@ -85,11 +99,11 @@ async function load(){
     $('#saveStatus').textContent='● 새로고침 완료 · '+new Date().toLocaleTimeString('ko-KR');
 
   }catch(error){
-
+    if(version!==loadVersion)return;
     serverConnected=false;
     const reason=['TimeoutError','AbortError'].includes(error.name)||/timed? ?out/i.test(error.message)?'서버 응답 시간이 초과되었습니다. 잠시 후 새로고침 버튼(↻)으로 다시 시도해 주세요.':error.message;
     $('#saveStatus').textContent='● 조회 실패: '+reason;
-  }finally{loading=false;lockControls(false);$('#saveAll').disabled=!serverConnected||Boolean(currentUser&&!canEdit());$('#refresh').textContent='↻';$('#refresh').setAttribute('aria-busy','false')}
+  }finally{if(version===loadVersion){loading=false;lockControls(false);$('#saveAll').disabled=!serverConnected||Boolean(currentUser&&!canEdit());$('#refresh').textContent='↻';$('#refresh').setAttribute('aria-busy','false')}}
 }
 async function saveAll(){
   if(currentUser&&!canEdit()){alert('수정하려면 편집 권한이 있는 계정으로 로그인해 주세요.');return false;}
@@ -218,7 +232,8 @@ function updateWorkspaceHeader(){
  $$('aside [data-workspace]').forEach(b=>b.classList.toggle('active',b.dataset.workspace===currentWorkspace));
 }
 async function switchWorkspace(key){
- if(loading||saving||!Object.hasOwn(workspaceNames,key))return;
+ if(saving||!Object.hasOwn(workspaceNames,key))return;
+ if(key!==currentWorkspace&&loading)leavePendingLoad();
  showWorkspacePage(key);
  if(key===currentWorkspace){updateWorkspaceHeader();selectTab('active');if(!serverConnected)await load();return}
  document.activeElement?.blur?.();
@@ -240,14 +255,15 @@ function showWorkspacePage(key){
  homeVisible=false;$('#homePage').hidden=true;$('#workspacePage').hidden=false;setRoute(key);
 }
 function showHome(){
- if(loading||saving)return;
+ if(saving)return;
+ if(loading)leavePendingLoad();
  document.activeElement?.blur?.();
  homeVisible=true;$('#homePage').hidden=false;$('#workspacePage').hidden=true;
  document.title='유플러스 업무 관리';setRoute('');
 }
 async function restoreRoute(){
  const key=window.location.hash.slice(1);
- if(loading||saving){window.history.replaceState(null,'',window.location.pathname+window.location.search+(homeVisible?'':'#'+currentWorkspace));return}
+ if(saving){window.history.replaceState(null,'',window.location.pathname+window.location.search+(homeVisible?'':'#'+currentWorkspace));return}
  if(Object.hasOwn(workspaceNames,key))await switchWorkspace(key);
  else showHome();
 }
@@ -318,7 +334,7 @@ function showAuthenticated(){$('#authPage').hidden=true;$('#homePage').hidden=fa
 async function publicRequest(payload){const response=await trackedFetch(window.APPS_SCRIPT_URL,{method:'POST',cache:'no-store',headers:{'Content-Type':'text/plain;charset=utf-8'},body:JSON.stringify(payload),signal:AbortSignal.timeout(30000)});const result=await response.json();if(!result?.ok)throw new Error(result?.error||'요청에 실패했습니다.');return result;}
 const AUTH_USER_KEY='workflow-auth-user';
 function storeAuthUser(user){sessionStorage.setItem(AUTH_USER_KEY,JSON.stringify(user));}
-function clearAuthSession(){sessionStorage.removeItem('workflow-auth-token');sessionStorage.removeItem(AUTH_USER_KEY);authToken='';currentUser=null;}
+function clearAuthSession(){try{sessionStorage.removeItem('workflow-auth-token');sessionStorage.removeItem(AUTH_USER_KEY);}catch{}authToken='';currentUser=null;}
 async function validateRestoredSession(){try{const result=await requestServer({action:'session'});currentUser=result.user;storeAuthUser(currentUser);applyPermissions();}catch{clearAuthSession();location.reload();}}
 const guestUser={name:'로그인 없이 조회 중'};
 async function initAuth(){
@@ -343,7 +359,7 @@ $$('[data-login]').forEach(el=>el.onclick=openLogin);
 $('#cancelLogin').onclick=()=>{showAuthenticated();restoreRoute();};
 $("#authForm").onsubmit=async(event)=>{event.preventDefault();$("#authError").textContent="";$("#loginSubmit").disabled=true;try{if(setupRequired){await publicRequest({action:"setupAdmin",username:$("#loginUsername").value,password:$("#loginPassword").value,name:$("#loginName").value,});setupRequired=false;}const result=await publicRequest({action:"login",username:$("#loginUsername").value,password:$("#loginPassword").value,});if(result.setupRequired){setupRequired=true;configureLogin();$('#loginName').focus();return;}authToken=result.token;currentUser=result.user;sessionStorage.setItem("workflow-auth-token",authToken);storeAuthUser(currentUser);showAuthenticated();applyPermissions();await restoreRoute();}catch(error){$("#authError").textContent=error.message;}finally{$("#loginSubmit").disabled=false;}};
 $$("[data-logout]").forEach(el=>el.onclick=async()=>{try{await requestServer({action:"logout"});}catch{}clearAuthSession();location.reload();});
-$('#usersButton').onclick=async()=>{try{const result=await requestServer({action:'listUsers'});$('#userList').innerHTML=result.users.map(u=>`<div class="user-row"><span><strong>${esc(u.name)}</strong><small>${esc(u.username)}</small></span><span class="role-badge">${esc(roleName(u.role))}</span></div>`).join('');$('#userError').textContent='';$('#usersDialog').showModal();}catch(error){alert(error.message);}};
+$('#usersButton').onclick=async()=>{$('#userList').textContent='계정 목록을 불러오는 중…';$('#usersDialog').showModal();try{const result=await requestServer({action:'listUsers'});$('#userList').innerHTML=result.users.map(u=>`<div class="user-row"><span><strong>${esc(u.name)}</strong><small>${esc(u.username)}</small></span><span class="role-badge">${esc(roleName(u.role))}</span></div>`).join('');$('#userError').textContent='';}catch(error){alert(error.message);}};
 $('#createUserButton').onclick=async()=>{try{await requestServer({action:'createUser',name:$('#newUserName').value,username:$('#newUsername').value,password:$('#newUserPassword').value,role:$('#newUserRole').value});$('#usersDialog').close();$('#usersButton').click();}catch(error){$('#userError').textContent=error.message;}};
 $('#historyButton').onclick=async()=>{$('#historyList').textContent='수정 이력을 불러오는 중…';$('#historyDialog').showModal();try{const result=await requestServer({action:'loadAudit'});$('#historyList').innerHTML=result.entries.length?result.entries.map(e=>`<div class="history-row"><strong>${esc(e.name)} · ${esc(e.action)} · ${esc(e.task)}</strong><small>${esc(e.at)} · ${esc(roleName(e.role))} · ${esc(e.field)}</small><span class="history-change">${esc(e.before)} → ${esc(e.after)}</span></div>`).join(''):'<p>아직 수정 이력이 없습니다.</p>';}catch(error){$('#historyList').textContent=error.message;}};
 
