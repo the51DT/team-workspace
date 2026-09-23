@@ -407,3 +407,20 @@ test('home guide stops at November 1 Korean time and works when browser storage 
  page.run("showHomeGuide(new Date('2026-10-31T14:59:59Z'));closeGuide();showHomeGuide(new Date('2026-10-31T14:59:59Z'))");assert.equal(page.run('guideCount'),1);
  page.run("showHomeGuide(new Date('2026-10-31T15:00:00Z'))");assert.equal(page.run('guideCount'),1);
 });
+
+
+test('login timeout gives a readable message and allows retry without automatic duplicate submission',async()=>{
+ const page=app(()=>{throw Object.assign(new Error('signal timed out'),{name:'TimeoutError'})},new Map(),'',true);await page.ready;
+ await page.element('#authForm').onsubmit({preventDefault(){}});
+ assert.match(page.element('#authError').textContent,/서버 응답 시간이 초과/);assert.equal(page.element('#loginSubmit').disabled,false);
+ assert.equal(page.requests.length,1);assert.equal(page.run("requestTimeout('login')"),90000);
+});
+
+test('account list timeout is shown inside dialog and duplicate clicks share the active attempt',async()=>{
+ let reject;const pending=new Promise((_resolve,fail)=>reject=fail);
+ const page=app(()=>pending,new Map(),'');await page.ready;page.element('#usersDialog').showModal=()=>{};
+ const first=page.element('#usersButton').onclick();await page.element('#usersButton').onclick();assert.equal(page.requests.length,1);
+ reject(Object.assign(new Error('signal timed out'),{name:'TimeoutError'}));await first;
+ assert.match(page.element('#userError').textContent,/서버 응답 시간이 초과/);assert.equal(page.run('usersLoading'),false);
+ assert.equal(page.run("requestTimeout('listUsers')"),60000);
+});

@@ -114,3 +114,14 @@ test('STG date saves and appears under its own audit field',()=>{
  assert.equal(app.run("loadPayload('enterprise').tasks[0][11]"),'2026-09-25');
  assert.equal(app.run("loadAuditPayload('enterprise').entries[0].field"),'STG 반영일');
 });
+
+
+test('session lookup searches older batches while recent sessions use one batch',()=>{
+ const app=harness();app.run("setupAdmin({username:'admin',password:'password1',name:'관리자'})");
+ const first=app.run("loginPayload({username:'admin',password:'password1'})");
+ const sheet=app.sheets.get('웹앱_세션');
+ for(let i=0;i<250;i++)sheet.appendRow(['other-'+i,'admin',first.expiresAt]);
+ const sizes=[],getRange=sheet.getRange.bind(sheet);sheet.getRange=(...args)=>{sizes.push(args[2]);return getRange(...args)};
+ assert.equal(app.run('requireSession('+JSON.stringify(first.token)+').role'),'admin');assert.deepEqual(sizes,[100,100,51]);
+ sizes.length=0;assert.equal(app.run("requireSession('other-249').role"),'admin');assert.deepEqual(sizes,[100]);
+});

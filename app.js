@@ -38,6 +38,11 @@ function previewSnapshot(){
 }
 let pendingRequests=0;
 function updateLoadingBar(delta){pendingRequests=Math.max(0,pendingRequests+delta);const bar=$('#loadingBar');if(!bar)return;const active=pendingRequests>0;bar.classList?.toggle('active',active);bar.setAttribute?.('aria-hidden',String(!active))}
+function requestTimeout(action){return ['login','setupAdmin','createUser'].includes(action)?90000:60000;}
+function requestError(error){
+ if(['TimeoutError','AbortError'].includes(error.name)||/signal timed out/i.test(error.message))return new Error('서버 응답 시간이 초과되었습니다. 잠시 후 다시 시도해 주세요. 계정 생성 중이었다면 계정 목록을 먼저 확인해 주세요.');
+ return error;
+}
 async function trackedFetch(url,options){updateLoadingBar(1);try{return await fetch(url,options)}finally{updateLoadingBar(-1)}}
 let loading=false,loadVersion=0;
 const pendingLoads=new Map();
@@ -54,7 +59,7 @@ async function sendRequest(payload){
   const publicRead=payload.action==='loadAudit'||(payload.action==='load'&&!authToken);
   const url=new URL(window.APPS_SCRIPT_URL);
   if(publicRead){url.searchParams.set('action',payload.action);url.searchParams.set('workspace',workspace);}
-  const response=await trackedFetch(url.toString(),{method:publicRead?'GET':'POST',cache:'no-store',...(!publicRead?{headers:{'Content-Type':'text/plain;charset=utf-8'},body:JSON.stringify({...payload,workspace:workspace,token:authToken})}:{}),signal:AbortSignal.timeout(payload.action==='load'?60000:30000)});
+  const response=await trackedFetch(url.toString(),{method:publicRead?'GET':'POST',cache:'no-store',...(!publicRead?{headers:{'Content-Type':'text/plain;charset=utf-8'},body:JSON.stringify({...payload,workspace:workspace,token:authToken})}:{}),signal:AbortSignal.timeout(requestTimeout(payload.action))});
   if(!response.ok)throw new Error('서버 응답 오류 (HTTP '+response.status+')');
   let result;
   try{result=await response.json()}catch(error){if(['TimeoutError','AbortError'].includes(error.name))throw error;throw new Error('서버가 JSON을 반환하지 않습니다. 웹 앱 배포와 접근 권한을 확인해 주세요.')}
@@ -338,7 +343,14 @@ function formatHistoryTime(value){
 function roleName(role){return {admin:'관리자',editor:'편집자'}[role]||role}
 function applyPermissions(renderRows=true){if(!currentUser)return;$$('[data-logout]').forEach(el=>el.hidden=!authToken);$$('[data-login]').forEach(el=>el.hidden=Boolean(authToken));$('#currentUser').textContent=currentUser.name+(currentUser.role?' · '+roleName(currentUser.role):'');$('#usersButton').hidden=currentUser.role!=='admin';const editable=canEdit();$('#workspacePage').classList.toggle('read-only',!editable);['newTask','carryOver','saveAll','deleteToggle'].forEach(id=>$('#'+id).disabled=!editable);if(renderRows)render();}
 function showAuthenticated(){closeGuide();$('#authPage').hidden=true;$('#homePage').hidden=false;}
-async function publicRequest(payload){const response=await trackedFetch(window.APPS_SCRIPT_URL,{method:'POST',cache:'no-store',headers:{'Content-Type':'text/plain;charset=utf-8'},body:JSON.stringify(payload),signal:AbortSignal.timeout(30000)});const result=await response.json();if(!result?.ok)throw new Error(result?.error||'요청에 실패했습니다.');return result;}
+async function publicRequest(payload){
+ try{
+ const response=await trackedFetch(window.APPS_SCRIPT_URL,{method:'POST',cache:'no-store',headers:{'Content-Type':'text/plain;charset=utf-8'},body:JSON.stringify(payload),signal:AbortSignal.timeout(requestTimeout(payload.action))});
+ if(!response.ok)throw new Error('서버 응답 오류 (HTTP '+response.status+')');
+ const result=await response.json();if(!result?.ok)throw new Error(result?.error||'요청에 실패했습니다.');return result;
+ }catch(error){throw requestError(error);}
+}
+
 const AUTH_USER_KEY='workflow-auth-user';
 function storeAuthUser(user){sessionStorage.setItem(AUTH_USER_KEY,JSON.stringify(user));}
 function clearAuthSession(){try{sessionStorage.removeItem('workflow-auth-token');sessionStorage.removeItem(AUTH_USER_KEY);}catch{}authToken='';currentUser=null;}
@@ -377,10 +389,11 @@ function openLogin(){closeGuide();
 }
 $$('[data-login]').forEach(el=>el.onclick=openLogin);
 $('#cancelLogin').onclick=()=>{showAuthenticated();restoreRoute();};
-$("#authForm").onsubmit=async(event)=>{event.preventDefault();$("#authError").textContent="";$("#loginSubmit").disabled=true;try{if(setupRequired){await publicRequest({action:"setupAdmin",username:$("#loginUsername").value,password:$("#loginPassword").value,name:$("#loginName").value,});setupRequired=false;}const result=await publicRequest({action:"login",username:$("#loginUsername").value,password:$("#loginPassword").value,});if(result.setupRequired){setupRequired=true;configureLogin();$('#loginName').focus();return;}authToken=result.token;currentUser=result.user;sessionStorage.setItem("workflow-auth-token",authToken);storeAuthUser(currentUser);showAuthenticated();applyPermissions();await restoreRoute();}catch(error){$("#authError").textContent=error.message;}finally{$("#loginSubmit").disabled=false;}};
+$("#authForm").onsubmit=async(event)=>{event.preventDefault();$("#authError").textContent="로그인 정보를 확인하고 있습니다…";$("#loginSubmit").disabled=true;try{if(setupRequired){await publicRequest({action:"setupAdmin",username:$("#loginUsername").value,password:$("#loginPassword").value,name:$("#loginName").value,});setupRequired=false;}const result=await publicRequest({action:"login",username:$("#loginUsername").value,password:$("#loginPassword").value,});if(result.setupRequired){setupRequired=true;configureLogin();$('#loginName').focus();return;}authToken=result.token;currentUser=result.user;sessionStorage.setItem("workflow-auth-token",authToken);storeAuthUser(currentUser);showAuthenticated();applyPermissions();await restoreRoute();}catch(error){$("#authError").textContent=error.message;}finally{$("#loginSubmit").disabled=false;}};
 $$("[data-logout]").forEach(el=>el.onclick=async()=>{try{await requestServer({action:"logout"});}catch{}clearAuthSession();location.reload();});
-$('#usersButton').onclick=async()=>{$('#userList').textContent='계정 목록을 불러오는 중…';$('#usersDialog').showModal();try{const result=await requestServer({action:'listUsers'});$('#userList').innerHTML=result.users.map(u=>`<div class="user-row"><span><strong>${esc(u.name)}</strong><small>${esc(u.username)}</small></span><span class="role-badge">${esc(roleName(u.role))}</span></div>`).join('');$('#userError').textContent='';}catch(error){alert(error.message);}};
-$('#createUserButton').onclick=async()=>{try{await requestServer({action:'createUser',name:$('#newUserName').value,username:$('#newUsername').value,password:$('#newUserPassword').value,role:$('#newUserRole').value});$('#usersDialog').close();$('#usersButton').click();}catch(error){$('#userError').textContent=error.message;}};
+let usersLoading=false;
+$('#usersButton').onclick=async()=>{if(usersLoading)return;usersLoading=true;$('#userError').textContent='';$('#userList').textContent='계정 목록을 불러오는 중…';$('#usersDialog').showModal();try{const result=await requestServer({action:'listUsers'});$('#userList').innerHTML=result.users.map(u=>`<div class="user-row"><span><strong>${esc(u.name)}</strong><small>${esc(u.username)}</small></span><span class="role-badge">${esc(roleName(u.role))}</span></div>`).join('');$('#userError').textContent='';}catch(error){$('#userList').textContent='계정 목록을 불러오지 못했습니다.';$('#userError').textContent=requestError(error).message;}finally{usersLoading=false;}};
+$('#createUserButton').onclick=async()=>{if($('#createUserButton').disabled)return;$('#createUserButton').disabled=true;$('#userError').textContent='계정을 생성하고 있습니다…';try{await requestServer({action:'createUser',name:$('#newUserName').value,username:$('#newUsername').value,password:$('#newUserPassword').value,role:$('#newUserRole').value});$('#usersDialog').close();$('#usersButton').click();}catch(error){$('#userError').textContent=requestError(error).message;}finally{$('#createUserButton').disabled=false;}};
 $('#historyButton').onclick=async()=>{$('#historyList').textContent='수정 이력을 불러오는 중…';$('#historyDialog').showModal();try{const result=await requestServer({action:'loadAudit'});$('#historyList').innerHTML=result.entries.length?result.entries.map(e=>`<div class="history-row"><strong>${esc(e.name)} · ${esc(e.action)} · ${esc(e.task)}</strong><small>${esc(formatHistoryTime(e.at))} · ${esc(roleName(e.role))} · ${esc(e.field)}</small><span class="history-change">${esc(e.before)} → ${esc(e.after)}</span></div>`).join(''):'<p>아직 수정 이력이 없습니다.</p>';}catch(error){$('#historyList').textContent=error.message;}};
 
 if(typeof document.getElementById==='function')initAuth();else restoreRoute();

@@ -152,7 +152,23 @@ function createUserPayload(r){return {ok:true,user:account(r.username,r.password
 function findUser(u){const sh=authSheet();if(sh.getLastRow()<2)return null;const rows=sh.getRange(2,1,sh.getLastRow()-1,7).getValues();for(let row of rows)if(String(row[0]).toLowerCase()===u)return {username:String(row[0]),name:String(row[1]),role:String(row[2]),salt:String(row[3]),hash:String(row[4]),active:row[5]===true||String(row[5]).toLowerCase()==='true'};return null;}
 function publicUser(u){return {username:u.username,name:u.name,role:u.role};}
 function loginPayload(r){const u=cleanUsername(r.username),p=cleanPassword(r.password),user=findUser(u);if(!user&&!hasUsers())return {ok:true,setupRequired:true};if(!user||!user.active||ROLES.indexOf(user.role)<0||passwordHash(p,user.salt)!==user.hash)throw new Error('아이디 또는 비밀번호가 올바르지 않습니다.');const token=Utilities.getUuid()+Utilities.getUuid().replace(/-/g,''),expires=new Date(Date.now()+SESSION_HOURS*3600000).toISOString();sessionSheet().appendRow([token,u,expires]);return {ok:true,token:token,user:publicUser(user),expiresAt:expires};}
-function requireSession(token){token=String(token||'');if(!token)throw new Error('로그인이 필요합니다.');const sh=sessionSheet();if(sh.getLastRow()<2)throw new Error('로그인이 만료되었습니다.');const rows=sh.getRange(2,1,sh.getLastRow()-1,3).getValues();for(let i=rows.length-1;i>=0;i--)if(String(rows[i][0])===token&&new Date(rows[i][2]).getTime()>Date.now()){const u=findUser(String(rows[i][1]).toLowerCase());if(u&&u.active&&ROLES.indexOf(u.role)>=0)return u;}throw new Error('로그인이 만료되었습니다.');}
+function requireSession(token){
+ token=String(token||'');if(!token)throw new Error('로그인이 필요합니다.');
+ const sh=sessionSheet(),last=sh.getLastRow();
+ // Read recent sessions first rather than transferring the entire session history.
+ for(let end=last;end>=2;){
+  const start=Math.max(2,end-99),rows=sh.getRange(start,1,end-start+1,3).getValues();
+  for(let i=rows.length-1;i>=0;i--)if(String(rows[i][0])===token){
+   if(new Date(rows[i][2]).getTime()>Date.now()){
+    const u=findUser(String(rows[i][1]).toLowerCase());if(u&&u.active&&ROLES.indexOf(u.role)>=0)return u;
+   }
+   throw new Error('로그인이 만료되었습니다.');
+  }
+  end=start-1;
+ }
+ throw new Error('로그인이 만료되었습니다.');
+}
+
 function logoutPayload(token){const sh=sessionSheet();if(sh.getLastRow()>1){const rows=sh.getRange(2,1,sh.getLastRow()-1,3).getValues();for(let i=rows.length-1;i>=0;i--)if(String(rows[i][0])===String(token))sh.deleteRow(i+2);}return {ok:true};}
 function requireRole(u,a){if(a.indexOf(u.role)<0)throw new Error('이 작업을 수행할 권한이 없습니다.');}
 function listUsers(){const sh=authSheet();if(sh.getLastRow()<2)return [];return sh.getRange(2,1,sh.getLastRow()-1,7).getValues().map(r=>({username:String(r[0]),name:String(r[1]),role:String(r[2]),active:r[5]===true||String(r[5]).toLowerCase()==='true',createdAt:String(r[6]||'')})).filter(u=>ROLES.indexOf(u.role)>=0);}
