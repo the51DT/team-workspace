@@ -301,7 +301,7 @@ function tableCsv(){
   [...row.cells].filter(cell=>!cell.hidden).map(cell=>{
    const input=cell.querySelector('input:not([type="checkbox"]), select, textarea');
    let value=input?input.value:(cell.innerText??cell.textContent??'');
-   if(cell.querySelector('input[type="checkbox"]'))value=registrationLabel(data[Number(row.dataset.index)]?.[0]||'');
+   if(cell.querySelector('input[type="checkbox"]'))value=row.dataset.index===undefined?'등록':registrationLabel(data[Number(row.dataset.index)]?.[0]||'');
    return '"'+String(value).replace(/"/g,'""')+'"';
   }).join(',')
  );
@@ -317,8 +317,19 @@ function exportCsv(){
 $('#exportCsv').onclick=exportCsv;
 function updateDeleteButton(){
   const count=$$('.row-check:checked').length;
+  const rows=$$('.row-check'),all=$('#selectAllRows');
+  all.hidden=!deleteMode;$('#registrationLabel').hidden=deleteMode;
+  all.checked=rows.length>0&&count===rows.length;
+  all.indeterminate=count>0&&count<rows.length;
+  all.disabled=!rows.length||loading||saving||Boolean(currentUser&&!canEdit());
   $('#deleteToggle').textContent=deleteMode?(count?'삭제 ('+count+')':'삭제 취소'):'삭제';
 }
+$('#selectAllRows').onchange=()=>{
+  if(!deleteMode||loading||saving||(currentUser&&!canEdit()))return;
+  const checked=$('#selectAllRows').checked;
+  $$('.row-check').forEach(row=>{if(!row.disabled)row.checked=checked;});
+  updateDeleteButton();
+};
 $('#deleteToggle').onclick=()=>{
   if(deleteMode&&$$('.row-check:checked').length){return deleteSelected();}
   deleteMode=!deleteMode;render();

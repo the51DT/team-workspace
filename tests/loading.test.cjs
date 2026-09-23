@@ -453,3 +453,16 @@ test('repeated carry overwrites one linked task and removes linked duplicates wi
  await page.run('saveAll()');await page.run('load()');page.run('changeMonth(-1);carryOver()');
  assert.equal(page.run('data.length'),3);assert.equal(page.run('selected().length'),2);
 });
+
+
+test('select all toggles rendered deletion rows and reflects partial and empty selection',async()=>{
+ const page=app(()=>({ok:true,tasks:[task]}));await page.ready;
+ page.run("deleteMode=true;checks=[{checked:false},{checked:false}];document.querySelectorAll=s=>s==='.row-check'?checks:s==='.row-check:checked'?checks.filter(x=>x.checked):[];updateDeleteButton()");
+ assert.equal(page.element('#selectAllRows').hidden,false);
+ page.element('#selectAllRows').checked=true;page.element('#selectAllRows').onchange();
+ assert.equal(page.run('checks.every(x=>x.checked)'),true);assert.match(page.element('#deleteToggle').textContent,/2/);
+ page.run('checks[0].checked=false;updateDeleteButton()');assert.equal(page.element('#selectAllRows').indeterminate,true);
+ page.element('#selectAllRows').checked=false;page.element('#selectAllRows').onchange();assert.equal(page.run('checks.some(x=>x.checked)'),false);
+ page.run('checks=[];updateDeleteButton()');assert.equal(page.element('#selectAllRows').disabled,true);
+ page.run('deleteMode=false;updateDeleteButton()');assert.equal(page.element('#selectAllRows').hidden,true);
+});
