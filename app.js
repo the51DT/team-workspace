@@ -315,17 +315,28 @@ function exportCsv(){
  setTimeout(()=>URL.revokeObjectURL(url),1000);
 }
 $('#exportCsv').onclick=exportCsv;
+function canSelectAllRows(){
+  const month=monthKey(selectedMonth);
+  if(month<=monthKey(new Date()))return false;
+  return data.some(row=>{
+    const meta=monthMeta(row);
+    if(!meta||meta.month!==month)return false;
+    const original=[...row];original[7]='';
+    return rowMonth(original)<month;
+  });
+}
 function updateDeleteButton(){
   const count=$$('.row-check:checked').length;
   const rows=$$('.row-check'),all=$('#selectAllRows');
-  all.hidden=!deleteMode;$('#registrationLabel').hidden=deleteMode;
+  const visible=deleteMode&&canSelectAllRows();
+  all.hidden=!visible;$('#registrationLabel').hidden=visible;
   all.checked=rows.length>0&&count===rows.length;
   all.indeterminate=count>0&&count<rows.length;
   all.disabled=!rows.length||loading||saving||Boolean(currentUser&&!canEdit());
   $('#deleteToggle').textContent=deleteMode?(count?'삭제 ('+count+')':'삭제 취소'):'삭제';
 }
 $('#selectAllRows').onchange=()=>{
-  if(!deleteMode||loading||saving||(currentUser&&!canEdit()))return;
+  if(!deleteMode||!canSelectAllRows()||loading||saving||(currentUser&&!canEdit()))return;
   const checked=$('#selectAllRows').checked;
   $$('.row-check').forEach(row=>{if(!row.disabled)row.checked=checked;});
   updateDeleteButton();

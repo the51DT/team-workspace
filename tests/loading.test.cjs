@@ -457,7 +457,7 @@ test('repeated carry overwrites one linked task and removes linked duplicates wi
 
 test('select all toggles rendered deletion rows and reflects partial and empty selection',async()=>{
  const page=app(()=>({ok:true,tasks:[task]}));await page.ready;
- page.run("deleteMode=true;checks=[{checked:false},{checked:false}];document.querySelectorAll=s=>s==='.row-check'?checks:s==='.row-check:checked'?checks.filter(x=>x.checked):[];updateDeleteButton()");
+ page.run("selectedMonth=new Date(new Date().getFullYear()+1,0,1);data[0][7]=MONTH_META+JSON.stringify({id:'carry-test',month:monthKey(selectedMonth)});deleteMode=true;checks=[{checked:false},{checked:false}];document.querySelectorAll=s=>s==='.row-check'?checks:s==='.row-check:checked'?checks.filter(x=>x.checked):[];updateDeleteButton()");
  assert.equal(page.element('#selectAllRows').hidden,false);
  page.element('#selectAllRows').checked=true;page.element('#selectAllRows').onchange();
  assert.equal(page.run('checks.every(x=>x.checked)'),true);assert.match(page.element('#deleteToggle').textContent,/2/);
@@ -465,4 +465,13 @@ test('select all toggles rendered deletion rows and reflects partial and empty s
  page.element('#selectAllRows').checked=false;page.element('#selectAllRows').onchange();assert.equal(page.run('checks.some(x=>x.checked)'),false);
  page.run('checks=[];updateDeleteButton()');assert.equal(page.element('#selectAllRows').disabled,true);
  page.run('deleteMode=false;updateDeleteButton()');assert.equal(page.element('#selectAllRows').hidden,true);
+});
+
+
+test('bulk selection is hidden in the current month and future months without carried tasks',async()=>{
+ const page=app(()=>({ok:true,tasks:[task]}));await page.ready;
+ page.run('deleteMode=true;selectedMonth=new Date();updateDeleteButton()');assert.equal(page.element('#selectAllRows').hidden,true);
+ page.run('selectedMonth=new Date(new Date().getFullYear()+1,0,1);updateDeleteButton()');assert.equal(page.element('#selectAllRows').hidden,true);
+ page.run("data[0][7]=MONTH_META+JSON.stringify({id:'carry',month:monthKey(selectedMonth)});updateDeleteButton()");assert.equal(page.element('#selectAllRows').hidden,false);
+ page.run('selectedMonth=new Date();data[0][7]=MONTH_META+JSON.stringify({id:"carry",month:monthKey(selectedMonth)});updateDeleteButton()');assert.equal(page.element('#selectAllRows').hidden,true);
 });
