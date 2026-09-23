@@ -125,3 +125,18 @@ test('session lookup searches older batches while recent sessions use one batch'
  assert.equal(app.run('requireSession('+JSON.stringify(first.token)+').role'),'admin');assert.deepEqual(sizes,[100,100,51]);
  sizes.length=0;assert.equal(app.run("requireSession('other-249').role"),'admin');assert.deepEqual(sizes,[100]);
 });
+
+
+test('audit pages find workspace records beyond the global latest 500 without dropping entries',()=>{
+ const app=harness();app.run("auditSheet()");const sheet=app.sheets.get('웹앱_수정이력');
+ for(let i=0;i<63;i++)sheet.appendRow(['2026-09-24','editor','편집자','editor','cx','수정','업무 '+i,'비고','전','후']);
+ for(let i=0;i<510;i++)sheet.appendRow(['2026-09-24','editor','편집자','editor','enterprise','수정','기업 '+i,'비고','전','후']);
+ const first=app.run("loadAuditPayload('cx')");assert.equal(first.entries.length,50);assert.equal(first.entries[0].task,'업무 62');
+ const second=app.run("loadAuditPayload('cx',"+first.nextCursor+")");assert.equal(second.entries.length,13);assert.equal(second.nextCursor,null);
+ const tasks=[...first.entries,...second.entries].map(e=>e.task);assert.equal(new Set(tasks).size,63);
+});
+
+test('all edited fields in a single save produce separate audit entries',()=>{
+ const app=harness();app.run("appendAudit('cx',{username:'editor',name:'편집자',role:'editor'},[['9/24','','A','배정','','업무','전','1','0']],[['9/24','','B','검수요청','2026-09-25','새 제목','후','2','0']],'2026-09-24')");
+ assert.equal(app.run("loadAuditPayload('cx').entries.length"),6);
+});

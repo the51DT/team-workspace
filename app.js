@@ -58,7 +58,7 @@ async function sendRequest(payload){
   if(!window.APPS_SCRIPT_URL)throw new Error('config.js에 Apps Script 웹 앱 URL을 설정해 주세요.');
   const publicRead=payload.action==='loadAudit'||(payload.action==='load'&&!authToken);
   const url=new URL(window.APPS_SCRIPT_URL);
-  if(publicRead){url.searchParams.set('action',payload.action);url.searchParams.set('workspace',workspace);}
+  if(publicRead){url.searchParams.set('action',payload.action);url.searchParams.set('workspace',workspace);if(payload.cursor!==undefined)url.searchParams.set('cursor',payload.cursor);}
   const response=await trackedFetch(url.toString(),{method:publicRead?'GET':'POST',cache:'no-store',...(!publicRead?{headers:{'Content-Type':'text/plain;charset=utf-8'},body:JSON.stringify({...payload,workspace:workspace,token:authToken})}:{}),signal:AbortSignal.timeout(requestTimeout(payload.action))});
   if(!response.ok)throw new Error('서버 응답 오류 (HTTP '+response.status+')');
   let result;
@@ -429,6 +429,31 @@ $$("[data-logout]").forEach(el=>el.onclick=async()=>{try{await requestServer({ac
 let usersLoading=false;
 $('#usersButton').onclick=async()=>{if(usersLoading)return;usersLoading=true;$('#userError').textContent='';$('#userList').textContent='계정 목록을 불러오는 중…';$('#usersDialog').showModal();try{const result=await requestServer({action:'listUsers'});$('#userList').innerHTML=result.users.map(u=>`<div class="user-row"><span><strong>${esc(u.name)}</strong><small>${esc(u.username)}</small></span><span class="role-badge">${esc(roleName(u.role))}</span></div>`).join('');$('#userError').textContent='';}catch(error){$('#userList').textContent='계정 목록을 불러오지 못했습니다.';$('#userError').textContent=requestError(error).message;}finally{usersLoading=false;}};
 $('#createUserButton').onclick=async()=>{if($('#createUserButton').disabled)return;$('#createUserButton').disabled=true;$('#userError').textContent='계정을 생성하고 있습니다…';try{await requestServer({action:'createUser',name:$('#newUserName').value,username:$('#newUsername').value,password:$('#newUserPassword').value,role:$('#newUserRole').value});$('#usersDialog').close();$('#usersButton').click();}catch(error){$('#userError').textContent=requestError(error).message;}finally{$('#createUserButton').disabled=false;}};
-$('#historyButton').onclick=async()=>{$('#historyList').textContent='수정 이력을 불러오는 중…';$('#historyDialog').showModal();try{const result=await requestServer({action:'loadAudit'});$('#historyList').innerHTML=result.entries.length?result.entries.map(e=>`<div class="history-row"><strong>${esc(e.name)} · ${esc(e.action)} · ${esc(e.task)}</strong><small>${esc(formatHistoryTime(e.at))} · ${esc(roleName(e.role))} · ${esc(e.field)}</small><span class="history-change">${esc(e.before)} → ${esc(e.after)}</span></div>`).join(''):'<p>아직 수정 이력이 없습니다.</p>';}catch(error){$('#historyList').textContent=error.message;}};
+let historyEntries=[],historyCursor=null,historyLoading=false,historyWorkspace='';
+function historyValue(value){
+ if(value===''||value==null)return '<span class="history-empty">없음</span>';
+ return esc(value);
+}
+function historyChanges(entry){
+ if(entry.field!=='전체')return [{field:entry.field,before:entry.before,after:entry.after}];
+ const labels=['등록','RMS','작업자','단계','운영 반영일','업무제목','비고','진행시각','완료시각','작업시간','조정','STG 반영일'];
+ try{const row=JSON.parse(entry.action==='삭제'?entry.before:entry.after);if(!Array.isArray(row))throw Error();if(row.length===9)row.splice(7,0,'','');return row.flatMap((value,i)=>value!==''&&value!=null&&i!==7&&i!==8?[{field:labels[i]||'항목',before:entry.action==='삭제'?value:'',after:entry.action==='삭제'?'':value}]:[]);}catch{return [{field:entry.field,before:entry.before,after:entry.after}];}
+}
+function renderHistory(){
+ $('#historyList').innerHTML=historyEntries.length?'<p class="history-summary">변경 내역 '+historyEntries.length+'건 · 최신순</p>'+historyEntries.map(e=>
+ '<article class="history-row"><strong>'+esc(e.task)+' <span class="history-action">'+esc(e.action)+'</span></strong><small>'+esc(e.name)+' · '+esc(formatHistoryTime(e.at))+'</small>'+historyChanges(e).map(c=>'<div class="history-field"><b>'+esc(c.field)+'</b><div class="history-values"><div><small>변경 전</small><span>'+historyValue(c.before)+'</span></div><div><small>변경 후</small><span>'+historyValue(c.after)+'</span></div></div></div>').join('')+'</article>').join(''):'<p>아직 저장된 수정 이력이 없습니다.</p>';
+ $('#historyMore').hidden=historyCursor==null;
+}
+async function fetchHistory(more=false){
+ if(historyLoading)return;historyLoading=true;$('#historyMore').disabled=true;$('#historyError').textContent='';
+ try{const result=await requestServer({action:'loadAudit',...(more?{cursor:historyCursor}:{})});
+ if(historyWorkspace!==currentWorkspace)return;
+ historyEntries=more?historyEntries.concat(result.entries):result.entries;historyCursor=result.nextCursor??null;renderHistory();
+ }catch(error){$('#historyError').textContent=requestError(error).message;if(!more)$('#historyList').textContent='수정 이력을 불러오지 못했습니다.';}
+ finally{historyLoading=false;$('#historyMore').disabled=false;}
+}
+$('#historyButton').onclick=async()=>{if(historyLoading)return;historyWorkspace=currentWorkspace;historyEntries=[];historyCursor=null;$('#historyMore').hidden=true;$('#historyList').textContent='수정 이력을 불러오는 중…';$('#historyDialog').showModal();await fetchHistory();};
+$('#historyMore').onclick=()=>fetchHistory(true);
+
 
 if(typeof document.getElementById==='function')initAuth();else restoreRoute();

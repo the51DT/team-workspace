@@ -8,7 +8,7 @@ function doGet(e) {
   try {
     const request=(e&&e.parameter)||{};
     if(request.action==='load')return jsonResponse(loadPayload(request.workspace));
-    if(request.action==='loadAudit')return jsonResponse(loadAuditPayload(request.workspace));
+    if(request.action==='loadAudit')return jsonResponse(loadAuditPayload(request.workspace,request.cursor));
     return jsonResponse({ok:false,error:'GET은 업무·수정 이력 조회만 지원합니다. action과 workspace를 지정해 주세요.'});
   }catch(error){return jsonResponse({ok:false,error:error.message});}
 }
@@ -19,7 +19,7 @@ function doPost(e) {
     if(request.action==='authStatus')return jsonResponse({ok:true,setupRequired:!hasUsers()});
     if(request.action==='setupAdmin')return jsonResponse(setupAdmin(request));
     if(request.action==='login')return jsonResponse(loginPayload(request));
-    if(request.action==='loadAudit')return jsonResponse(loadAuditPayload(request.workspace));
+    if(request.action==='loadAudit')return jsonResponse(loadAuditPayload(request.workspace,request.cursor));
     if(request.action==='load'&&!request.token)return jsonResponse(loadPayload(request.workspace));
     const user=requireSession(request.token);
     if(request.action==='logout')return jsonResponse(logoutPayload(request.token));
@@ -174,4 +174,19 @@ function requireRole(u,a){if(a.indexOf(u.role)<0)throw new Error('이 작업을 
 function listUsers(){const sh=authSheet();if(sh.getLastRow()<2)return [];return sh.getRange(2,1,sh.getLastRow()-1,7).getValues().map(r=>({username:String(r[0]),name:String(r[1]),role:String(r[2]),active:r[5]===true||String(r[5]).toLowerCase()==='true',createdAt:String(r[6]||'')})).filter(u=>ROLES.indexOf(u.role)>=0);}
 const AUDIT_FIELDS=['등록','RMS','작업자','단계','운영 반영일','업무제목','비고','진행시각','완료시각','작업시간','조정','STG 반영일'];
 function appendAudit(ws,u,before,after,at){const rows=[],max=Math.max(before.length,after.length);for(let i=0;i<max;i++){const normalize=r=>r&&r.length===9?r.slice(0,7).concat(['',''],r.slice(7)):r;const a=normalize(before[i]),b=normalize(after[i]),title=String((b||a||[])[5]||('업무 '+(i+1)));if(!a||!b){rows.push([at,u.username,u.name,u.role,ws,!a?'추가':'삭제',title,'전체',a?JSON.stringify(a):'',b?JSON.stringify(b):'']);continue;}for(let c=0;c<Math.max(a.length,b.length);c++){const x=String(a[c]??''),y=String(b[c]??'');if(x!==y)rows.push([at,u.username,u.name,u.role,ws,'수정',title,AUDIT_FIELDS[c]||('열 '+(c+1)),x,y]);}}if(rows.length){const sh=auditSheet();sh.getRange(sh.getLastRow()+1,1,rows.length,10).setValues(rows);}}
-function loadAuditPayload(ws){ws=workspaceKey(ws);const sh=auditSheet();if(sh.getLastRow()<2)return {ok:true,workspace:ws,entries:[]};const n=Math.min(500,sh.getLastRow()-1),start=sh.getLastRow()-n+1;const values=sh.getRange(start,1,n,10).getDisplayValues().reverse().filter(r=>r[4]===ws);return {ok:true,workspace:ws,entries:values.map(r=>({at:r[0],username:r[1],name:r[2],role:r[3],workspace:r[4],action:r[5],task:r[6],field:r[7],before:r[8],after:r[9]}))};}
+function loadAuditPayload(ws,cursor){
+ ws=workspaceKey(ws);const sh=auditSheet(),last=sh.getLastRow();
+ let end=cursor===undefined||cursor===''?last:Number(cursor);
+ if(!Number.isInteger(end)||end<1)throw new Error('이력 조회 위치가 올바르지 않습니다.');
+ end=Math.min(end,last);const entries=[];
+ while(end>=2&&entries.length<50){
+  const start=Math.max(2,end-499),values=sh.getRange(start,1,end-start+1,10).getDisplayValues();
+  for(let i=values.length-1;i>=0;i--){
+   const r=values[i];end=start+i-1;
+   if(r[4]!==ws)continue;
+   entries.push({at:r[0],username:r[1],name:r[2],role:r[3],workspace:r[4],action:r[5],task:r[6],field:r[7],before:r[8],after:r[9]});
+   if(entries.length===50)break;
+  }
+ }
+ return {ok:true,workspace:ws,entries:entries,nextCursor:end>=2?end:null};
+}

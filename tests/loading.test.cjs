@@ -475,3 +475,10 @@ test('bulk selection is hidden in the current month and future months without ca
  page.run("data[0][7]=MONTH_META+JSON.stringify({id:'carry',month:monthKey(selectedMonth)});updateDeleteButton()");assert.equal(page.element('#selectAllRows').hidden,false);
  page.run('selectedMonth=new Date();data[0][7]=MONTH_META+JSON.stringify({id:"carry",month:monthKey(selectedMonth)});updateDeleteButton()');assert.equal(page.element('#selectAllRows').hidden,true);
 });
+
+
+test('history shows each changed field with escaped before and after values',async()=>{
+ const page=app(()=>({ok:true,tasks:[]}));await page.ready;
+ page.run("historyEntries=[{task:'업무',action:'수정',name:'작성자',at:'2026-09-24T01:00:00Z',field:'비고',before:'<script>',after:'수정 내용'}];renderHistory()");
+ const html=page.element('#historyList').innerHTML;assert.match(html,/변경 전/);assert.match(html,/변경 후/);assert.match(html,/&lt;script&gt;/);assert.match(html,/수정 내용/);
+});
