@@ -153,12 +153,12 @@ test('refresh button fetches changed server rows and clears stale search',async(
 
 
 
-test('deletion remains local until the save button is used',async()=>{
+test('deletion persists immediately after confirmation',async()=>{
  let tasks=[task];const page=app(p=>{if(p.action==='save'){tasks=p.tasks;return {ok:true}}return {ok:true,tasks}});await page.ready;
  page.run("document.querySelectorAll=s=>s==='.row-check:checked'?[{dataset:{check:'0'}}]:[];deleteMode=true");
  const before=page.requests.length;await page.run('deleteSelected()');
- assert.equal(page.run('data.length'),0);assert.equal(page.requests.length,before);assert.equal(tasks.length,1);
- assert.match(page.element('#saveStatus').textContent,/저장 버튼/);
+ assert.equal(page.run('data.length'),0);assert.equal(page.requests.length,before+1);assert.equal(tasks.length,0);
+ assert.match(page.element('#saveStatus').textContent,/삭제 및 서버 저장 완료/);
  await page.element('#saveAll').onclick();assert.equal(tasks.length,0);
 });
 
@@ -423,4 +423,33 @@ test('account list timeout is shown inside dialog and duplicate clicks share the
  reject(Object.assign(new Error('signal timed out'),{name:'TimeoutError'}));await first;
  assert.match(page.element('#userError').textContent,/서버 응답 시간이 초과/);assert.equal(page.run('usersLoading'),false);
  assert.equal(page.run("requestTimeout('listUsers')"),60000);
+});
+
+
+test('deleted carried task stays deleted after reload and can be carried again without duplicates',async()=>{
+ let tasks=[task];const page=app(p=>{if(p.action==='save')tasks=p.tasks;return {ok:true,tasks}});await page.ready;
+ page.run('selectedMonth=new Date(2026,8,1);carryOver()');await page.run('saveAll()');
+ page.run("document.querySelectorAll=s=>s==='.row-check:checked'?[{dataset:{check:'1'}}]:[]");
+ await page.run('deleteSelected()');await page.run('load()');assert.equal(page.run('selected().length'),0);
+ page.run("changeMonth(-1);const meta=monthMeta(data[0]);meta.skipped=['2026-10'];data[0][7]=MONTH_META+JSON.stringify(meta);carryOver()");
+ assert.equal(page.run('selected().length'),1);await page.run('saveAll()');await page.run('load()');
+ assert.equal(page.run('selected().length'),1);page.run('changeMonth(-1);carryOver()');assert.equal(page.run('data.length'),2);
+});
+
+test('failed deletion restores the list and unsaved draft markers',async()=>{
+ const page=app(p=>p.action==='save'?{ok:false,error:'저장 거부'}:{ok:true,tasks:[task]});await page.ready;
+ page.run("newRows.add(0);document.querySelectorAll=s=>s==='.row-check:checked'?[{dataset:{check:'0'}}]:[]");
+ await page.run('deleteSelected()');assert.equal(page.run('data.length'),1);assert.equal(page.run('newRows.has(0)'),true);
+ assert.match(page.element('#saveStatus').textContent,/목록을 복원/);
+});
+
+
+test('repeated carry overwrites one linked task and removes linked duplicates without affecting unrelated rows',async()=>{
+ let tasks=[task];const page=app(p=>{if(p.action==='save')tasks=p.tasks;return {ok:true,tasks}});await page.ready;
+ page.run('selectedMonth=new Date(2026,8,1);carryOver()');await page.run('saveAll()');
+ page.run("data.push([...data[1]]);newRows.add(2);data.push(['2026-10-01','','작업자 A','배정','','별도 업무','','','','3','']);newRows.add(3);remember(0,5,'원본 변경');remember(1,5,'이월 변경');remember(1,9,'5');changeMonth(-1);carryOver()");
+ assert.equal(page.run('data.length'),3);assert.equal(page.run('data[1][5]'),'원본 변경');assert.equal(page.run('data[1][9]'),'');
+ assert.equal(page.run('data[2][5]'),'별도 업무');assert.equal(page.run('newRows.has(2)'),true);
+ await page.run('saveAll()');await page.run('load()');page.run('changeMonth(-1);carryOver()');
+ assert.equal(page.run('data.length'),3);assert.equal(page.run('selected().length'),2);
 });

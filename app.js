@@ -157,17 +157,28 @@ function rowMonth(row){
 function copyPreviousMonth(targetMonth=selectedMonth){
  if(!serverConnected)return 0;
  const target=monthKey(targetMonth),previous=monthKey(new Date(targetMonth.getFullYear(),targetMonth.getMonth()-1,1));
+ const drafts=new Set([...newRows].map(i=>data[i])),duplicates=new Set(),processed=new Set();
  let count=0;
  data.filter(row=>rowMonth(row)===previous&&!['보류','취소','완료'].includes(row[3])).forEach(row=>{
   let meta=monthMeta(row);
   if(!meta){meta={id:Date.now().toString(36)+'-'+Math.random().toString(36).slice(2),month:previous};row[7]=MONTH_META+JSON.stringify(meta)}
-  if(meta.skipped?.includes(target)||data.some(other=>{const m=monthMeta(other);return m&&m.id===meta.id&&m.month===target}))return;
+  if(processed.has(meta.id))return;
+  processed.add(meta.id);
+  const matches=data.filter(other=>{const m=monthMeta(other);return m&&m.id===meta.id&&m.month===target});
   const clone=[...row];clone[9]='';clone[10]='';clone[7]=MONTH_META+JSON.stringify({id:meta.id,month:target});
-  data.push(clone);newRows.add(data.length-1);count++;
+  if(matches.length){
+   const existing=matches[0],index=data.indexOf(existing);
+   data[index]=clone;if(drafts.has(existing)){drafts.delete(existing);drafts.add(clone);}
+   matches.slice(1).forEach(duplicate=>duplicates.add(duplicate));
+  }else{data.push(clone);drafts.add(clone);}
+  count++;
  });
- if(count)$('#saveStatus').textContent='● 이전 달 업무 '+count+'개 복사됨 · 저장을 눌러 반영해 주세요';
+ data=data.filter(row=>!duplicates.has(row));
+ newRows=new Set(data.flatMap((row,i)=>drafts.has(row)?[i]:[]));
+ if(count)$('#saveStatus').textContent='● 이월 업무 '+count+'개 반영됨 (기존 이월 업무 덮어쓰기) · 저장을 눌러 주세요';
  return count;
 }
+
 function updateMonth(){
   $('#prevMonth').disabled=selectedMonth<=new Date(2026,8,1);
   $('#monthLabel').textContent=selectedMonth.getFullYear()+'년 '+String(selectedMonth.getMonth()+1).padStart(2,'0')+'월';
@@ -184,7 +195,7 @@ function carryOver(){
   suppressAutoSave=true;document.activeElement?.blur?.();suppressAutoSave=false;
   const next=new Date(selectedMonth.getFullYear(),selectedMonth.getMonth()+1,1);
   const count=copyPreviousMonth(next);
-  if(!count){$('#saveStatus').textContent='● 이월할 업무가 없거나 이미 이월되었습니다.';return}
+  if(!count){$('#saveStatus').textContent='● 이월할 업무가 없습니다.';return}
   selectedMonth=next;$('#search').value='';$('#worker').value='all';$('#status').value='all';
   updateMonth();render();
 }
@@ -210,16 +221,18 @@ function registrationLabel(value){
  return match?Number(match[1])+'/'+Number(match[2]):String(value??'');
 }
 async function deleteSelected(){
- if(loading||saving)return;
+ if(loading||saving||!serverConnected||(currentUser&&!canEdit()))return;
  const ids=$$('.row-check:checked').map(x=>+x.dataset.check);
  if(!ids.length){alert('삭제할 업무를 선택해 주세요.');return}
- if(!confirm(ids.length+'개의 업무를 삭제하시겠습니까? 서버 반영은 저장 버튼을 눌러야 완료됩니다.'))return;
- ids.forEach(i=>{const deleted=monthMeta(data[i]);if(!deleted)return;data.forEach(row=>{const m=monthMeta(row);if(m&&m.id===deleted.id&&m.month<deleted.month){m.skipped=[...new Set([...(m.skipped||[]),deleted.month])];row[7]=MONTH_META+JSON.stringify(m)}})});
+ if(!confirm(ids.length+'개의 업무를 삭제하고 저장하시겠습니까? 현재 수정 내용도 함께 저장됩니다.'))return;
+ document.activeElement?.blur?.();
+ const previous={data,newRows,edits,deleteMode};
  const pending=new Set([...newRows].map(i=>data[i]));
  data=data.filter((_,i)=>!ids.includes(i));
  newRows=new Set(data.flatMap((r,i)=>pending.has(r)?[i]:[]));
- deleteMode=false;$('#saveStatus').textContent='● 삭제 변경사항 있음 · 저장 버튼을 눌러 주세요';
- render();
+ deleteMode=false;render();
+ if(await saveAll()){$('#saveStatus').textContent='● 삭제 및 서버 저장 완료';}
+ else{({data,newRows,edits,deleteMode}=previous);render();$('#saveStatus').textContent+=' · 삭제를 완료하지 못해 목록을 복원했습니다.';}
 }
 
 
