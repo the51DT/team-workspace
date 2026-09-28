@@ -10,7 +10,7 @@ const ID='1QEgjN6IXs473j1oNuTt-5WM39CcihQNHfUN7Piyp6WI',statuses=['배정','진�
 let workers=[];
 function visibleWorkers(){return workers}
 let editPrefix='',serverConnected=false;
-let authToken='',currentUser=null,setupRequired=false;
+let authToken='',currentUser=null,setupRequired=false,restoringAuth=false;
 const canEdit=()=>currentUser&&['admin','editor'].includes(currentUser.role);
 let saving=false,suppressAutoSave=false;
 const calendarToday=new Date();
@@ -28,6 +28,7 @@ function normalize(row){
 function snapshotKey(workspace=currentWorkspace){return 'workflow-snapshot-v1:'+window.APPS_SCRIPT_URL+':'+workspace}
 function cacheSnapshot(tasks,workspace=currentWorkspace){try{localStorage.setItem(snapshotKey(workspace),JSON.stringify({tasks,savedAt:Date.now()}))}catch{}}
 function previewSnapshot(){
+ if(restoringAuth)return false;
  if(data.length)return false;
  try{
   const cached=JSON.parse(localStorage.getItem(snapshotKey()));
@@ -99,7 +100,7 @@ async function load(){
     data=rows;newRows.clear();edits={};deleteMode=false;
     $('#deleteToggle').textContent='삭제';
     workers=[...new Set([...(Array.isArray(result.workers)?result.workers:[]),...data.map(r=>r[2])].filter(Boolean))];
-    serverConnected=true;if(result.user)currentUser=result.user;filters();applyPermissions(false);render();
+    serverConnected=true;if(result.user){currentUser=result.user;restoringAuth=false;storeAuthUser(currentUser);}filters();applyPermissions(false);render();
 
     $('#saveStatus').textContent='● 새로고침 완료 · '+new Date().toLocaleTimeString('ko-KR');
 
@@ -411,10 +412,23 @@ function storeAuthUser(user){try{localStorage.setItem(AUTH_USER_KEY,JSON.stringi
 function clearAuthSession(){try{localStorage.removeItem('workflow-auth-token');localStorage.removeItem(AUTH_USER_KEY);sessionStorage.removeItem('workflow-auth-token');sessionStorage.removeItem(AUTH_USER_KEY);}catch{}authToken='';currentUser=null;serverConnected=false;}
 async function initAuth(){
  try{authToken=localStorage.getItem('workflow-auth-token')||sessionStorage.getItem('workflow-auth-token')||'';}catch{}
- openLogin();if(!authToken)return;
- $('#authError').textContent='로그인 상태를 확인하고 있습니다…';
- try{const result=await requestServer({action:'session'});currentUser=result.user;try{localStorage.setItem('workflow-auth-token',authToken);}catch{}storeAuthUser(currentUser);showAuthenticated();applyPermissions();await restoreRoute();}
- catch(error){if(/로그인이 (필요|만료)/.test(error.message))clearAuthSession();$('#authError').textContent=requestError(error).message;}
+ if(!authToken){openLogin();return;}
+ const token=authToken;restoringAuth=true;currentUser={name:'로그인 확인 중'};
+ showAuthenticated();applyPermissions();
+ // A workspace load already validates the session and returns the user.
+ if(Object.hasOwn(workspaceNames,window.location.hash.slice(1))){await restoreRoute();return;}
+ showHome();
+ try{
+  const result=await requestServer({action:'session'});
+  if(authToken!==token)return;
+  currentUser=result.user;restoringAuth=false;storeAuthUser(currentUser);
+  try{localStorage.setItem('workflow-auth-token',authToken);}catch{}
+  applyPermissions();if(loading)lockControls(true);
+ }catch(error){
+  if(authToken!==token)return;
+  if(/로그인이 (필요|만료)/.test(error.message)){clearAuthSession();openLogin();$('#authError').textContent=error.message;}
+  else{$('#currentUser').textContent='로그인 확인 지연 · 업무 공간 선택 시 다시 확인';}
+ }
 }
 function configureLogin(){
  $('#authTitle').textContent=setupRequired?'초기 관리자 생성':'로그인';
@@ -442,7 +456,7 @@ function openLogin(){closeGuide();
 }
 $$('[data-login]').forEach(el=>el.onclick=openLogin);
 
-$("#authForm").onsubmit=async(event)=>{event.preventDefault();$("#authError").textContent="로그인 정보를 확인하고 있습니다…";$("#loginSubmit").disabled=true;try{if(setupRequired){await publicRequest({action:"setupAdmin",username:$("#loginUsername").value,password:$("#loginPassword").value,name:$("#loginName").value,});setupRequired=false;}const result=await publicRequest({action:"login",username:$("#loginUsername").value,password:$("#loginPassword").value,});if(result.setupRequired){setupRequired=true;configureLogin();$('#loginName').focus();return;}authToken=result.token;currentUser=result.user;try{localStorage.setItem("workflow-auth-token",authToken);}catch{}storeAuthUser(currentUser);showAuthenticated();applyPermissions();await restoreRoute();}catch(error){$("#authError").textContent=error.message;}finally{$("#loginSubmit").disabled=false;}};
+$("#authForm").onsubmit=async(event)=>{event.preventDefault();$("#authError").textContent="로그인 정보를 확인하고 있습니다…";$("#loginSubmit").disabled=true;try{if(setupRequired){await publicRequest({action:"setupAdmin",username:$("#loginUsername").value,password:$("#loginPassword").value,name:$("#loginName").value,});setupRequired=false;}const result=await publicRequest({action:"login",username:$("#loginUsername").value,password:$("#loginPassword").value,});if(result.setupRequired){setupRequired=true;configureLogin();$('#loginName').focus();return;}authToken=result.token;currentUser=result.user;restoringAuth=false;try{localStorage.setItem("workflow-auth-token",authToken);}catch{}storeAuthUser(currentUser);showAuthenticated();applyPermissions();await restoreRoute();}catch(error){$("#authError").textContent=error.message;}finally{$("#loginSubmit").disabled=false;}};
 $$("[data-logout]").forEach(el=>el.onclick=async()=>{try{await requestServer({action:"logout"});}catch{}clearAuthSession();location.reload();});
 let passwordChanging=false;
 $$('[data-password]').forEach(el=>el.onclick=()=>{

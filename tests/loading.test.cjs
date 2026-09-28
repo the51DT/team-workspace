@@ -517,3 +517,21 @@ test('password confirmation mismatch does not send a request',async()=>{
  await page.element('#passwordForm').onsubmit({preventDefault(){}});
  assert.equal(page.requests.length,0);assert.match(page.element('#passwordMessage').textContent,/일치하지/);
 });
+
+
+test('restored session shows home before session check finishes without enabling edits',async()=>{
+ let finish;const pending=new Promise(resolve=>finish=resolve);
+ const storage=new Map([['workflow-auth-token','existing']]);
+ const page=app(()=>pending,storage,'',true);await new Promise(resolve=>setImmediate(resolve));
+ assert.equal(page.element('#homePage').hidden,false);assert.equal(page.element('#authPage').hidden,true);assert.equal(page.run('canEdit()'),false);
+ finish({ok:true,user:{name:'편집자',role:'editor'}});await page.ready;assert.equal(page.run('canEdit()'),true);
+});
+
+test('direct workspace entry validates login in the load request and does not show cached private rows first',async()=>{
+ let finish;const pending=new Promise(resolve=>finish=resolve);
+ const storage=new Map([['workflow-auth-token','existing'],['workflow-snapshot-v1:https://example.test/exec:cx',JSON.stringify({tasks:[task]})]]);
+ const page=app(()=>pending,storage,'#cx',true);await new Promise(resolve=>setImmediate(resolve));
+ assert.equal(page.requests.length,1);assert.equal(page.requests[0].payload.action,'load');assert.doesNotMatch(page.element('#rows').innerHTML,/업무 제목/);
+ finish({ok:true,workspace:'cx',tasks:[task],user:{name:'편집자',role:'editor'}});await page.ready;
+ assert.equal(page.requests.length,1);assert.match(page.element('#rows').innerHTML,/업무 제목/);assert.equal(page.run('canEdit()'),true);
+});
