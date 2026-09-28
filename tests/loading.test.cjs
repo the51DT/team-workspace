@@ -166,23 +166,23 @@ test('legacy statuses migrate and monthly copies persist without duplicating aft
  let tasks=['보류','이월','완료','진행'].map((status,i)=>['2026-12-19',''+i,'작업자 A',status,'','업무 '+i,'메모','1','0']);
  const page=app(p=>{if(p.action==='save'){tasks=p.tasks;return {ok:true}}return {ok:true,tasks}});await page.ready;
  assert.equal(page.run('data[1][3]'),'취소');assert.equal(page.run('data[3][3]'),'진행중');
- page.run('selectedMonth=new Date(2026,11,1);carryOver()');
+ await page.run('selectedMonth=new Date(2026,11,1);carryOver()');
  assert.equal(page.run('selected().length'),1);assert.equal(page.run('data.length'),5);
  assert.equal(page.run('selected()[0].r[3]'),'진행중');
  page.run("remember(4,5,'수정된 복사 업무')");await page.run('saveAll()');await page.run('load()');
  assert.equal(page.run('data.length'),5);assert.equal(page.run('selected().length'),1);
- page.run('changeMonth(-1);carryOver()');assert.equal(page.run('data.length'),5);
+ await page.run('changeMonth(-1);carryOver()');assert.equal(await page.run('data.length'),5);
 });
 
 test('all unfinished stages copy while terminal stages remain in the original month',async()=>{
  const stages=['배정','진행중','내부검수','검수요청','반영대기','보류','취소','완료'];
  const page=app(()=>({ok:true,tasks:stages.map((stage,i)=>['2026-09-19',''+i,'작업자 A',stage,'','업무 '+i,'비고','2','1'])}));await page.ready;
- page.run('selectedMonth=new Date(2026,8,1);carryOver()');
+ await page.run('selectedMonth=new Date(2026,8,1);carryOver()');
  assert.equal(page.run('selected().length'),5);assert.equal(page.run('data.length'),13);
  assert.equal(page.run("selected().every(({r})=>r[0]==='2026-09-19'&&r[6]==='비고'&&r[9]===''&&r[10]==='')"),true);
  page.run("selectTab('list');changeMonth(-1)");assert.equal(page.run('selected().length'),8);
  assert.equal(page.run("selected().every(({r})=>r[9]==='2'&&r[10]==='1')"),true);
- page.run('carryOver()');assert.equal(page.run('data.length'),13);
+ await page.run('carryOver()');assert.equal(await page.run('data.length'),13);
 });
 
 test('month navigation cannot go before September 2026 and never creates copies',async()=>{
@@ -190,8 +190,8 @@ test('month navigation cannot go before September 2026 and never creates copies'
  page.run('selectedMonth=new Date(2026,8,1);updateMonth();changeMonth(-1)');
  assert.equal(page.element('#monthLabel').textContent,'2026년 09월');assert.equal(page.element('#prevMonth').disabled,true);
  page.run('changeMonth(1)');assert.equal(page.run('data.length'),1);assert.equal(page.run('selected().length'),0);
- page.run('changeMonth(-1);carryOver()');assert.equal(page.run('data.length'),2);assert.equal(page.element('#monthLabel').textContent,'2026년 10월');
- page.run('changeMonth(-1);carryOver()');assert.equal(page.run('data.length'),2);
+ await page.run('changeMonth(-1);carryOver()');assert.equal(await page.run('data.length'),2);assert.equal(page.element('#monthLabel').textContent,'2026년 10월');
+ await page.run('changeMonth(-1);carryOver()');assert.equal(await page.run('data.length'),2);
 });
 
 test('notes allow Enter and preserve rendered line breaks through save and reload',async()=>{
@@ -428,12 +428,12 @@ test('account list timeout is shown inside dialog and duplicate clicks share the
 
 test('deleted carried task stays deleted after reload and can be carried again without duplicates',async()=>{
  let tasks=[task];const page=app(p=>{if(p.action==='save')tasks=p.tasks;return {ok:true,tasks}});await page.ready;
- page.run('selectedMonth=new Date(2026,8,1);carryOver()');await page.run('saveAll()');
+ await page.run('selectedMonth=new Date(2026,8,1);carryOver()');await page.run('saveAll()');
  page.run("document.querySelectorAll=s=>s==='.row-check:checked'?[{dataset:{check:'1'}}]:[]");
  await page.run('deleteSelected()');await page.run('load()');assert.equal(page.run('selected().length'),0);
- page.run("changeMonth(-1);const meta=monthMeta(data[0]);meta.skipped=['2026-10'];data[0][7]=MONTH_META+JSON.stringify(meta);carryOver()");
+ await page.run("changeMonth(-1);const meta=monthMeta(data[0]);meta.skipped=['2026-10'];data[0][7]=MONTH_META+JSON.stringify(meta);carryOver()");
  assert.equal(page.run('selected().length'),1);await page.run('saveAll()');await page.run('load()');
- assert.equal(page.run('selected().length'),1);page.run('changeMonth(-1);carryOver()');assert.equal(page.run('data.length'),2);
+ assert.equal(await page.run('selected().length'),1);await page.run('changeMonth(-1);carryOver()');assert.equal(await page.run('data.length'),2);
 });
 
 test('failed deletion restores the list and unsaved draft markers',async()=>{
@@ -446,11 +446,11 @@ test('failed deletion restores the list and unsaved draft markers',async()=>{
 
 test('repeated carry overwrites one linked task and removes linked duplicates without affecting unrelated rows',async()=>{
  let tasks=[task];const page=app(p=>{if(p.action==='save')tasks=p.tasks;return {ok:true,tasks}});await page.ready;
- page.run('selectedMonth=new Date(2026,8,1);carryOver()');await page.run('saveAll()');
- page.run("data.push([...data[1]]);newRows.add(2);data.push(['2026-10-01','','작업자 A','배정','','별도 업무','','','','3','']);newRows.add(3);remember(0,5,'원본 변경');remember(1,5,'이월 변경');remember(1,9,'5');changeMonth(-1);carryOver()");
+ await page.run('selectedMonth=new Date(2026,8,1);carryOver()');await page.run('saveAll()');
+ await page.run("data.push([...data[1]]);newRows.add(2);data.push(['2026-10-01','','작업자 A','배정','','별도 업무','','','','3','']);newRows.add(3);remember(0,5,'원본 변경');remember(1,5,'이월 변경');remember(1,9,'5');changeMonth(-1);carryOver()");
  assert.equal(page.run('data.length'),3);assert.equal(page.run('data[1][5]'),'원본 변경');assert.equal(page.run('data[1][9]'),'');
  assert.equal(page.run('data[2][5]'),'별도 업무');assert.equal(page.run('newRows.has(2)'),true);
- await page.run('saveAll()');await page.run('load()');page.run('changeMonth(-1);carryOver()');
+ await page.run('saveAll()');await page.run('load()');await page.run('changeMonth(-1);carryOver()');
  assert.equal(page.run('data.length'),3);assert.equal(page.run('selected().length'),2);
 });
 
@@ -481,4 +481,18 @@ test('history shows each changed field with escaped before and after values',asy
  const page=app(()=>({ok:true,tasks:[]}));await page.ready;
  page.run("historyEntries=[{task:'업무',action:'수정',name:'작성자',at:'2026-09-24T01:00:00Z',field:'비고',before:'<script>',after:'수정 내용'}];renderHistory()");
  const html=page.element('#historyList').innerHTML;assert.match(html,/변경 전/);assert.match(html,/변경 후/);assert.match(html,/&lt;script&gt;/);assert.match(html,/수정 내용/);
+});
+test('carry over backs up the visible enterprise table before copying rows',async()=>{
+ let backup;
+ const enterprise=[...task,'2026-09-24'];enterprise[5]='기업 업무';
+ const page=app(p=>{
+  if(p.action==='backupLedger'){backup=p;return {ok:true,workspace:p.workspace,sheet:'웹앱_기업_업무대장',rowCount:p.rows.length}}
+  return {ok:true,workspace:p.workspace,tasks:p.workspace==='enterprise'?[enterprise]:[]};
+ });
+ await page.ready;await page.run("switchWorkspace('enterprise')");
+ await page.run("selectedMonth=new Date(2026,8,1);carryOver()");
+ assert.equal(backup.workspace,'enterprise');
+ assert.deepEqual(backup.headers,['등록','RMS','작업자','단계','STG 반영일','운영 반영일','업무제목','비고','작업시간']);
+ assert.equal(backup.rows.length,1);assert.equal(backup.rows[0][4],'2026-09-24');assert.equal(backup.rows[0][6],'기업 업무');
+ assert.equal(page.run("monthKey(selectedMonth)"),'2026-10');
 });

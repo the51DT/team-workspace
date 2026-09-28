@@ -1,5 +1,6 @@
 const DATA_SHEETS = {cx:'웹앱_CX_업무데이터', enterprise:'웹앱_기업_업무데이터', aldot:'웹앱_알닷_업무데이터'};
 const WORKER_SHEETS = {cx:'웹앱_CX_작업자', enterprise:'웹앱_기업_작업자', aldot:'웹앱_알닷_작업자'};
+const LEDGER_SHEETS = {cx:'웹앱_CX_업무대장', enterprise:'웹앱_기업_업무대장', aldot:'웹앱_알닷_업무대장'};
 const AUTH_SHEET='웹앱_계정', SESSION_SHEET='웹앱_세션', AUDIT_SHEET='웹앱_수정이력';
 const ROLES=['admin','editor'], SESSION_HOURS=12;
 function workspaceKey(value){const key=value||'cx';if(!Object.prototype.hasOwnProperty.call(DATA_SHEETS,key))throw new Error('지원하지 않는 업무 공간입니다.');return key}
@@ -26,6 +27,7 @@ function doPost(e) {
     if(request.action==='session')return jsonResponse({ok:true,user:publicUser(user)});
     if(request.action==='load')return jsonResponse(Object.assign(loadPayload(request.workspace),{user:publicUser(user)}));
     if(request.action==='save'){requireRole(user,['admin','editor']);return jsonResponse(savePayload(request.tasks,request.workspace,user));}
+    if(request.action==='backupLedger'){requireRole(user,['admin','editor']);return jsonResponse(backupLedgerPayload(request.headers,request.rows,request.workspace));}
     if(request.action==='saveWorkers'){requireRole(user,['admin']);return jsonResponse(saveWorkersPayload(request.workers,request.workspace));}
     if(request.action==='listUsers'){requireRole(user,['admin']);return jsonResponse({ok:true,users:listUsers()});}
     if(request.action==='createUser'){requireRole(user,['admin']);return jsonResponse(createUserPayload(request));}
@@ -97,6 +99,26 @@ function validateTasks(tasks) {
   }
 }
 
+function backupLedgerPayload(headers,rows,workspace) {
+  workspace=workspaceKey(workspace);
+  if(!Array.isArray(headers)||!headers.length||headers.some(value=>typeof value!=='string'))throw new Error('업무대장 헤더 형식이 올바르지 않습니다.');
+  if(!Array.isArray(rows)||rows.some(row=>!Array.isArray(row)||row.length!==headers.length||row.some(value=>value!==null&&!['string','number','boolean'].includes(typeof value))))throw new Error('업무대장 데이터 형식이 올바르지 않습니다.');
+  const lock=LockService.getScriptLock();
+  lock.waitLock(10000);
+  try{
+    const book=SpreadsheetApp.getActiveSpreadsheet();
+    if(!book)throw new Error('대상 스프레드시트의 확장 프로그램 → Apps Script에서 실행해 주세요.');
+    const name=LEDGER_SHEETS[workspace];
+    let sheet=book.getSheetByName(name);
+    if(!sheet)sheet=book.insertSheet(name);
+    sheet.clearContents();
+    const values=[headers,...rows].map(row=>row.map(value=>value===null?'':value));
+    sheet.getRange(1,1,values.length,headers.length).setValues(values);
+    if(sheet.setFrozenRows)sheet.setFrozenRows(1);
+    SpreadsheetApp.flush();
+    return {ok:true,workspace:workspace,sheet:name,rowCount:rows.length,backedUpAt:new Date().toISOString()};
+  }finally{lock.releaseLock();}
+}
 function savePayload(tasks, workspace, user) {
   workspace=workspaceKey(workspace);
   validateTasks(tasks);

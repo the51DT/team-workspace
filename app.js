@@ -190,12 +190,29 @@ function changeMonth(offset){
   suppressAutoSave=true;document.activeElement?.blur?.();suppressAutoSave=false;selectedMonth=next;
   updateMonth();render();
 }
-function carryOver(){
-  if(loading||saving||!serverConnected)return;
+function ledgerTableSnapshot(){
+ const definitions={
+  cx:{headers:['등록','RMS','작업자','단계','운영 반영일','업무제목','비고','작업시간','조정'],columns:[0,1,2,3,4,5,6,9,10]},
+  enterprise:{headers:['등록','RMS','작업자','단계','STG 반영일','운영 반영일','업무제목','비고','작업시간'],columns:[0,1,2,3,11,4,5,6,9]},
+  aldot:{headers:['등록','RMS','작업자','단계','운영 반영일','업무제목','비고','작업시간'],columns:[0,1,2,3,4,5,6,9]}
+ };
+ const definition=definitions[currentWorkspace];
+ return {headers:definition.headers,rows:selected().map(({r})=>definition.columns.map(column=>column===0?registrationLabel(r[0]):r[column]??''))};
+}
+async function carryOver(){
+  if(loading||saving||!serverConnected||(currentUser&&!canEdit()))return;
   suppressAutoSave=true;document.activeElement?.blur?.();suppressAutoSave=false;
+  const snapshot=ledgerTableSnapshot();
+  saving=true;lockControls(true);$('#saveStatus').textContent='● 업무대장 백업 중…';
+  try{
+    const result=await requestServer({action:'backupLedger',headers:snapshot.headers,rows:snapshot.rows});
+    $('#saveStatus').textContent='● '+result.sheet+' 백업 완료 · '+result.rowCount+'건';
+  }catch(error){
+    $('#saveStatus').textContent='● 업무대장 백업 실패: '+error.message;alert('이월 전 업무대장 백업에 실패했습니다: '+error.message);return;
+  }finally{saving=false;lockControls(false)}
   const next=new Date(selectedMonth.getFullYear(),selectedMonth.getMonth()+1,1);
   const count=copyPreviousMonth(next);
-  if(!count){$('#saveStatus').textContent='● 이월할 업무가 없습니다.';return}
+  if(!count){$('#saveStatus').textContent='● 업무대장 백업 완료 · 이월할 업무가 없습니다.';return}
   selectedMonth=next;$('#search').value='';$('#worker').value='all';$('#status').value='all';
   updateMonth();render();
 }

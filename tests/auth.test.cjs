@@ -9,6 +9,8 @@ function harness(){
  class Sheet{
   constructor(){this.rows=[]}
   hideSheet(){}
+  clearContents(){this.rows=[]}
+  setFrozenRows(count){this.frozenRows=count}
   getLastRow(){return this.rows.length}
   appendRow(row){this.rows.push([...row])}
   deleteRow(n){this.rows.splice(n-1,1)}
@@ -139,4 +141,15 @@ test('audit pages find workspace records beyond the global latest 500 without dr
 test('all edited fields in a single save produce separate audit entries',()=>{
  const app=harness();app.run("appendAudit('cx',{username:'editor',name:'편집자',role:'editor'},[['9/24','','A','배정','','업무','전','1','0']],[['9/24','','B','검수요청','2026-09-25','새 제목','후','2','0']],'2026-09-24')");
  assert.equal(app.run("loadAuditPayload('cx').entries.length"),6);
+});
+test('workspace ledger backup replaces the matching sheet with table data',()=>{
+ const app=harness();
+ const headers=['등록','RMS','작업자','단계','STG 반영일','운영 반영일','업무제목','비고','작업시간'];
+ const rows=[['9/22','123','담당자','진행중','2026-09-24','2026-09-25','기업 업무','비고','1.250']];
+ for(const [workspace,name] of [['cx','웹앱_CX_업무대장'],['enterprise','웹앱_기업_업무대장'],['aldot','웹앱_알닷_업무대장']]){
+  const result=app.run(`backupLedgerPayload(${JSON.stringify(headers)},${JSON.stringify(rows)},${JSON.stringify(workspace)})`);
+  assert.equal(result.sheet,name);assert.equal(result.rowCount,1);
+  assert.deepEqual(app.sheets.get(name).rows,[headers,...rows]);
+  assert.equal(app.sheets.get(name).frozenRows,1);
+ }
 });
