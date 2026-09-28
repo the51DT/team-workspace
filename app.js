@@ -56,6 +56,7 @@ function requestServer(payload){
 }
 // Shared transport for both login and authenticated API requests.
 async function postJson(payload){
+ const startedAt=Date.now();
  if(!window.APPS_SCRIPT_URL)throw new Error('config.js에 Apps Script 웹 앱 URL을 설정해 주세요.');
  updateLoadingBar(1);
  try{
@@ -69,6 +70,10 @@ async function postJson(payload){
    if(['TimeoutError','AbortError'].includes(error.name))throw error;
    throw new Error('서버가 JSON을 반환하지 않습니다. 웹 앱 배포와 접근 권한을 확인해 주세요.');
   }
+  const elapsedMs=Date.now()-startedAt;
+  // Timings contain no credentials or task data; keep only the latest request.
+  window.lastApiTiming={action:payload.action,elapsedMs,serverElapsedMs:result?.serverElapsedMs??null};
+  console.info('[API timing]',window.lastApiTiming);
   if(!result?.ok){
    if(result?.error==='POST 로그인 요청을 사용해 주세요.')throw new Error('서버에 이전 조회 코드가 배포되어 있습니다. Code.gs를 반영하고 새 버전으로 배포해 주세요.');
    throw new Error(result?.error||result?.message||'Apps Script 요청에 실패했습니다.');

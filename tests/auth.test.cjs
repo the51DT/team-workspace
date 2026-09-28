@@ -174,3 +174,28 @@ test('login hashes outside the write lock and rechecks credentials before issuin
  assert.throws(()=>app.run("loginPayload({username:'admin',password:'password1'})"),/계정 정보/);
  assert.equal(app.sheets.get('웹앱_세션').rows.length,2);
 });
+
+test('warm session validation reads two live rows without searching sheets',()=>{
+ const app=harness();setupAdmin(app);
+ const session=app.run("loginPayload({username:'admin',password:'password1'})");
+ const validate=()=>app.run('requireSession('+JSON.stringify(session.token)+')');validate();
+ let reads=0;
+ for(const name of ['웹앱_계정','웹앱_세션']){
+  const sheet=app.sheets.get(name),range=sheet.getRange.bind(sheet);
+  sheet.getLastRow=()=>{throw Error('unexpected scan')};
+  sheet.getRange=(...args)=>{assert.equal(args[2],1);reads++;return range(...args)};
+ }
+ assert.equal(validate().role,'admin');assert.equal(reads,2);
+ app.sheets.get('웹앱_계정').rows[1][5]=false;assert.throws(validate,/만료/);
+});
+test('row hints recover after deletion and cache loss without accepting revoked tokens',()=>{
+ const app=harness();setupAdmin(app);
+ const first=app.run("loginPayload({username:'admin',password:'password1'})"),second=app.run("loginPayload({username:'admin',password:'password1'})");
+ const validate=token=>app.run('requireSession('+JSON.stringify(token)+')');
+ validate(first.token);validate(second.token);
+ app.run('logoutPayload('+JSON.stringify(first.token)+')');
+ assert.equal(validate(second.token).role,'admin');assert.throws(()=>validate(first.token));
+ app.cache.clear();assert.equal(validate(second.token).role,'admin');
+ app.run("CacheService.getScriptCache=()=>{throw Error('cache unavailable')}");
+ assert.equal(validate(second.token).role,'admin');
+});

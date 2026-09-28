@@ -7,7 +7,9 @@ function workspaceKey(value){const key=value||'cx';if(!Object.prototype.hasOwnPr
 
 function doGet(){return jsonResponse({ok:false,error:'로그인이 필요합니다. 인증된 POST 요청을 사용해 주세요.'});}
 
+let requestStartedAt=0;
 function doPost(e) {
+  requestStartedAt=Date.now();
   try {
     const request=JSON.parse((e&&e.postData&&e.postData.contents)||'{}');
     if(request.action==='authStatus')return jsonResponse({ok:true,setupRequired:!hasUsers()});
@@ -150,6 +152,7 @@ function getDataSheet(workspace) {
 }
 
 function jsonResponse(payload) {
+  if(requestStartedAt)payload.serverElapsedMs=Date.now()-requestStartedAt;
   return ContentService.createTextOutput(JSON.stringify(payload))
     .setMimeType(ContentService.MimeType.JSON);
 }
@@ -165,7 +168,31 @@ function passwordHash(p,s){let v=s+':'+p;for(let i=0;i<2000;i++)v=Utilities.base
 function account(u,p,n,r){u=cleanUsername(u);p=cleanPassword(p);n=String(n||'').trim();if(!n)throw new Error('이름을 입력해 주세요.');if(ROLES.indexOf(r)<0)throw new Error('권한이 올바르지 않습니다.');const sh=authSheet(),rows=sh.getLastRow()>1?sh.getRange(2,1,sh.getLastRow()-1,7).getValues():[];if(rows.some(x=>String(x[0]).toLowerCase()===u))throw new Error('이미 존재하는 아이디입니다.');const salt=Utilities.getUuid();sh.appendRow([u,n,r,salt,passwordHash(p,salt),true,new Date().toISOString()]);return {username:u,name:n,role:r};}
 function setupAdmin(r){const lock=LockService.getScriptLock();lock.waitLock(10000);try{if(hasUsers())throw new Error('초기 관리자 설정이 완료되었습니다.');return {ok:true,user:account(r.username,r.password,r.name,'admin')};}finally{lock.releaseLock();}}
 function createUserPayload(r){return {ok:true,user:account(r.username,r.password,r.name,r.role)};}
-function findUser(u){const sh=authSheet();if(sh.getLastRow()<2)return null;const rows=sh.getRange(2,1,sh.getLastRow()-1,7).getValues();for(let row of rows)if(String(row[0]).toLowerCase()===u)return {username:String(row[0]),name:String(row[1]),role:String(row[2]),salt:String(row[3]),hash:String(row[4]),active:row[5]===true||String(row[5]).toLowerCase()==='true'};return null;}
+// Cache only row positions. Always reread live values before authenticating.
+function findAuthRow(sheet,kind,value,width,ignoreCase){
+ const key='auth-row-v1:'+kind+':'+Utilities.base64EncodeWebSafe(Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256,value,Utilities.Charset.UTF_8));
+ let cache,cached;
+ try{cache=CacheService.getScriptCache();cached=Number(cache.get(key));}catch{}
+ const matches=row=>ignoreCase?String(row[0]).toLowerCase()===value:String(row[0])===value;
+ if(Number.isInteger(cached)&&cached>=2){
+  try{const row=sheet.getRange(cached,1,1,width).getValues()[0];if(matches(row))return row;}catch{}
+ }
+ const last=sheet.getLastRow();
+ if(last>1){
+  const found=sheet.getRange(2,1,last-1,1).createTextFinder(value)
+   .matchEntireCell(true).matchCase(!ignoreCase).useRegularExpression(false).findNext();
+  if(found){
+   const position=found.getRow(),row=sheet.getRange(position,1,1,width).getValues()[0];
+   if(matches(row)){try{if(cache)cache.put(key,String(position),21600);}catch{}return row;}
+  }
+ }
+ try{if(cache)cache.remove(key);}catch{}
+ return null;
+}
+function findUser(u){
+ const row=findAuthRow(authSheet(),'user',u,7,true);
+ return row?{username:String(row[0]),name:String(row[1]),role:String(row[2]),salt:String(row[3]),hash:String(row[4]),active:row[5]===true||String(row[5]).toLowerCase()==='true'}:null;
+}
 function publicUser(u){return {username:u.username,name:u.name,role:u.role};}
 function loginPayload(r){
  const u=cleanUsername(r.username),p=cleanPassword(r.password),user=findUser(u);
@@ -184,18 +211,10 @@ function loginPayload(r){
 }
 function requireSession(token){
  token=String(token||'');if(!token)throw new Error('로그인이 필요합니다.');
- const sh=sessionSheet(),last=sh.getLastRow();
- if(last>1){
-  // Search only the token column in Sheets; never download each history batch.
-  const match=sh.getRange(2,1,last-1,1).createTextFinder(token)
-   .matchEntireCell(true).matchCase(true).useRegularExpression(false).findNext();
-  if(match){
-   const row=sh.getRange(match.getRow(),1,1,3).getValues()[0];
-   if(String(row[0])===token&&(!row[2]||new Date(row[2]).getTime()>Date.now())){
-    const user=findUser(String(row[1]).toLowerCase());
-    if(user&&user.active&&ROLES.indexOf(user.role)>=0)return user;
-   }
-  }
+ const row=findAuthRow(sessionSheet(),'session',token,3,false);
+ if(row&&(!row[2]||new Date(row[2]).getTime()>Date.now())){
+  const user=findUser(String(row[1]).toLowerCase());
+  if(user&&user.active&&ROLES.indexOf(user.role)>=0)return user;
  }
  throw new Error('로그인이 만료되었습니다.');
 }
