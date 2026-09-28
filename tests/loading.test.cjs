@@ -482,17 +482,35 @@ test('history shows each changed field with escaped before and after values',asy
  page.run("historyEntries=[{task:'업무',action:'수정',name:'작성자',at:'2026-09-24T01:00:00Z',field:'비고',before:'<script>',after:'수정 내용'}];renderHistory()");
  const html=page.element('#historyList').innerHTML;assert.match(html,/변경 전/);assert.match(html,/변경 후/);assert.match(html,/&lt;script&gt;/);assert.match(html,/수정 내용/);
 });
-test('carry over backs up the visible enterprise table before copying rows',async()=>{
+test('saving after carry over backs up the original enterprise month',async()=>{
  let backup;
- const enterprise=[...task,'2026-09-24'];enterprise[5]='기업 업무';
+ const enterprise=[...task.slice(0,7),'','',...task.slice(7),'2026-09-24'];enterprise[5]='기업 업무';
  const page=app(p=>{
   if(p.action==='backupLedger'){backup=p;return {ok:true,workspace:p.workspace,sheet:'웹앱_기업_업무대장',rowCount:p.rows.length}}
   return {ok:true,workspace:p.workspace,tasks:p.workspace==='enterprise'?[enterprise]:[]};
  });
  await page.ready;await page.run("switchWorkspace('enterprise')");
  await page.run("selectedMonth=new Date(2026,8,1);carryOver()");
+ assert.equal(backup,undefined);await page.run('saveAll()');
  assert.equal(backup.workspace,'enterprise');
  assert.deepEqual(backup.headers,['등록','RMS','작업자','단계','STG 반영일','운영 반영일','업무제목','비고','작업시간']);
  assert.equal(backup.rows.length,1);assert.equal(backup.rows[0][4],'2026-09-24');assert.equal(backup.rows[0][6],'기업 업무');
  assert.equal(page.run("monthKey(selectedMonth)"),'2026-10');
+});
+
+
+test('ledger after carry saves all source-month rows regardless of filters and preserves next-month tasks',async()=>{
+ let backup,tasks=[task,[...task.slice(0,3),'완료',...task.slice(4)],['2026-10-01','','작업자 B','배정','','다음 달 업무','','4','0']];
+ const page=app(p=>{if(p.action==='backupLedger')backup=p;if(p.action==='save')tasks=p.tasks;return {ok:true,workspace:p.workspace,tasks}});await page.ready;
+ page.element('#search').value='검색에 없는 내용';page.element('#worker').value='다른 작업자';
+ await page.run('selectedMonth=new Date(2026,8,1);carryOver()');assert.equal(backup,undefined);
+ await page.run('saveAll()');assert.equal(backup.rows.length,2);assert.ok(backup.rows.some(r=>r[3]==='완료'));assert.ok(!backup.rows.some(r=>r[5]==='다음 달 업무'));
+ assert.equal(tasks.length,4);assert.equal(page.run('pendingLedgerMonths.size'),0);
+});
+
+test('ledger failure retains carry save context for retry',async()=>{
+ let fail=true;const page=app(p=>p.action==='backupLedger'&&fail?{ok:false,error:'대장 실패'}:{ok:true,tasks:[task]});await page.ready;
+ await page.run('selectedMonth=new Date(2026,8,1);carryOver()');await page.run('saveAll()');
+ assert.equal(page.run("pendingLedgerMonths.get('cx')"),'2026-09');assert.equal(page.requests.filter(r=>r.payload.action==='save').length,0);
+ fail=false;await page.run('saveAll()');assert.equal(page.run('pendingLedgerMonths.size'),0);
 });

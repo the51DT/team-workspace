@@ -2,6 +2,7 @@ const workspaceNames={cx:'CX',enterprise:'기업',aldot:'알닷'};
 let currentWorkspace='cx';
 let homeVisible=true;
 const workspaceDrafts=new Map();
+const pendingLedgerMonths=new Map();
 function storageKey(key){return currentWorkspace==='cx'?key:currentWorkspace+':'+key}
 const statusClasses={"배정":"status-assigned","진행중":"status-in-progress","내부검수":"status-internal-review","검수요청":"status-review-requested","반영대기":"status-pending-release","완료":"status-completed","취소":"status-cancelled","보류":"status-on-hold"};
 const statusClass=value=>Object.hasOwn(statusClasses,value)?statusClasses[value]:'';
@@ -129,7 +130,14 @@ async function saveAll(){
     return columns.map(c=>c===0&&pendingRows.has(row)?registrationLabel(row[0]):row[c]??'');
   });
   try{
+    const ledgerMonth=pendingLedgerMonths.get(currentWorkspace);
+    if(ledgerMonth){
+      const snapshot=ledgerTableSnapshot(ledgerMonth);
+      $('#saveStatus').textContent='● '+ledgerMonth+' 전체 업무대장 저장 중…';
+      await requestServer({action:'backupLedger',headers:snapshot.headers,rows:snapshot.rows});
+    }
     const result=await requestServer({action:'save',tasks});
+    pendingLedgerMonths.delete(currentWorkspace);
     data=orderedRows.map((row,i)=>[tasks[i][0],...row.slice(1)]);newRows.clear();edits={};try{localStorage.removeItem(storageKey(KEY))}catch{}
     cacheSnapshot(tasks);
     $('#saveStatus').textContent='● Apps Script 저장 완료';
@@ -190,29 +198,22 @@ function changeMonth(offset){
   suppressAutoSave=true;document.activeElement?.blur?.();suppressAutoSave=false;selectedMonth=next;
   updateMonth();render();
 }
-function ledgerTableSnapshot(){
+function ledgerTableSnapshot(month=monthKey(selectedMonth)){
  const definitions={
   cx:{headers:['등록','RMS','작업자','단계','운영 반영일','업무제목','비고','작업시간','조정'],columns:[0,1,2,3,4,5,6,9,10]},
   enterprise:{headers:['등록','RMS','작업자','단계','STG 반영일','운영 반영일','업무제목','비고','작업시간'],columns:[0,1,2,3,11,4,5,6,9]},
   aldot:{headers:['등록','RMS','작업자','단계','운영 반영일','업무제목','비고','작업시간'],columns:[0,1,2,3,4,5,6,9]}
  };
  const definition=definitions[currentWorkspace];
- return {headers:definition.headers,rows:selected().map(({r})=>definition.columns.map(column=>column===0?registrationLabel(r[0]):r[column]??''))};
+ return {headers:definition.headers,rows:data.filter(r=>rowMonth(r)===month).map(r=>definition.columns.map(column=>column===0?registrationLabel(r[0]):r[column]??''))};
 }
 async function carryOver(){
   if(loading||saving||!serverConnected||(currentUser&&!canEdit()))return;
   suppressAutoSave=true;document.activeElement?.blur?.();suppressAutoSave=false;
-  const snapshot=ledgerTableSnapshot();
-  saving=true;lockControls(true);$('#saveStatus').textContent='● 업무대장 백업 중…';
-  try{
-    const result=await requestServer({action:'backupLedger',headers:snapshot.headers,rows:snapshot.rows});
-    $('#saveStatus').textContent='● '+result.sheet+' 백업 완료 · '+result.rowCount+'건';
-  }catch(error){
-    $('#saveStatus').textContent='● 업무대장 백업 실패: '+error.message;alert('이월 전 업무대장 백업에 실패했습니다: '+error.message);return;
-  }finally{saving=false;lockControls(false)}
+  pendingLedgerMonths.set(currentWorkspace,monthKey(selectedMonth));
   const next=new Date(selectedMonth.getFullYear(),selectedMonth.getMonth()+1,1);
   const count=copyPreviousMonth(next);
-  if(!count){$('#saveStatus').textContent='● 업무대장 백업 완료 · 이월할 업무가 없습니다.';return}
+  if(!count){$('#saveStatus').textContent='● 이월할 업무가 없습니다. 저장하면 해당 월 전체 목록을 업무대장에 반영합니다.';return}
   selectedMonth=next;$('#search').value='';$('#worker').value='all';$('#status').value='all';
   updateMonth();render();
 }
