@@ -167,21 +167,35 @@ function setupAdmin(r){const lock=LockService.getScriptLock();lock.waitLock(1000
 function createUserPayload(r){return {ok:true,user:account(r.username,r.password,r.name,r.role)};}
 function findUser(u){const sh=authSheet();if(sh.getLastRow()<2)return null;const rows=sh.getRange(2,1,sh.getLastRow()-1,7).getValues();for(let row of rows)if(String(row[0]).toLowerCase()===u)return {username:String(row[0]),name:String(row[1]),role:String(row[2]),salt:String(row[3]),hash:String(row[4]),active:row[5]===true||String(row[5]).toLowerCase()==='true'};return null;}
 function publicUser(u){return {username:u.username,name:u.name,role:u.role};}
-function loginPayload(r){const lock=LockService.getScriptLock();lock.waitLock(10000);try{return loginWithLock(r);}finally{lock.releaseLock();}}
-function loginWithLock(r){const u=cleanUsername(r.username),p=cleanPassword(r.password),user=findUser(u);if(!user&&!hasUsers())return {ok:true,setupRequired:true};if(!user||!user.active||ROLES.indexOf(user.role)<0||passwordHash(p,user.salt)!==user.hash)throw new Error('아이디 또는 비밀번호가 올바르지 않습니다.');const token=Utilities.getUuid()+Utilities.getUuid().replace(/-/g,''),expires='';sessionSheet().appendRow([token,u,expires]);return {ok:true,token:token,user:publicUser(user),expiresAt:expires};}
+function loginPayload(r){
+ const u=cleanUsername(r.username),p=cleanPassword(r.password),user=findUser(u);
+ if(!user&&!hasUsers())return {ok:true,setupRequired:true};
+ if(!user||!user.active||ROLES.indexOf(user.role)<0||passwordHash(p,user.salt)!==user.hash)throw new Error('아이디 또는 비밀번호가 올바르지 않습니다.');
+ // Hash verification does not hold up unrelated writes. Recheck under the
+ // password-change lock before issuing a session to avoid using stale credentials.
+ const lock=LockService.getScriptLock();lock.waitLock(10000);
+ try{
+  const latest=findUser(u);
+  if(!latest||!latest.active||ROLES.indexOf(latest.role)<0||latest.hash!==user.hash||latest.salt!==user.salt)throw new Error('계정 정보가 변경되었습니다. 다시 로그인해 주세요.');
+  const token=Utilities.getUuid()+Utilities.getUuid().replace(/-/g,''),expires='';
+  sessionSheet().appendRow([token,u,expires]);
+  return {ok:true,token:token,user:publicUser(latest),expiresAt:expires};
+ }finally{lock.releaseLock();}
+}
 function requireSession(token){
  token=String(token||'');if(!token)throw new Error('로그인이 필요합니다.');
  const sh=sessionSheet(),last=sh.getLastRow();
- // Read recent sessions first rather than transferring the entire session history.
- for(let end=last;end>=2;){
-  const start=Math.max(2,end-99),rows=sh.getRange(start,1,end-start+1,3).getValues();
-  for(let i=rows.length-1;i>=0;i--)if(String(rows[i][0])===token){
-   if(!rows[i][2]||new Date(rows[i][2]).getTime()>Date.now()){
-    const u=findUser(String(rows[i][1]).toLowerCase());if(u&&u.active&&ROLES.indexOf(u.role)>=0)return u;
+ if(last>1){
+  // Search only the token column in Sheets; never download each history batch.
+  const match=sh.getRange(2,1,last-1,1).createTextFinder(token)
+   .matchEntireCell(true).matchCase(true).useRegularExpression(false).findNext();
+  if(match){
+   const row=sh.getRange(match.getRow(),1,1,3).getValues()[0];
+   if(String(row[0])===token&&(!row[2]||new Date(row[2]).getTime()>Date.now())){
+    const user=findUser(String(row[1]).toLowerCase());
+    if(user&&user.active&&ROLES.indexOf(user.role)>=0)return user;
    }
-   throw new Error('로그인이 만료되었습니다.');
   }
-  end=start-1;
  }
  throw new Error('로그인이 만료되었습니다.');
 }

@@ -15,7 +15,18 @@ function harness(){
   getRange(a,b,c,d){
    if(typeof a==='string'){const map={'A2:B2':[2,1,1,2]};[a,b,c,d]=map[a]||[1,1,1,1]}
    const sheet=this;
-   return {setValues(values){for(let i=0;i<values.length;i++){sheet.rows[a-1+i]??=[];for(let j=0;j<values[i].length;j++)sheet.rows[a-1+i][b-1+j]=values[i][j]}},getValues(){return Array.from({length:c},(_,i)=>Array.from({length:d},(_,j)=>sheet.rows[a-1+i]?.[b-1+j]??''))},getDisplayValues(){return this.getValues().map(row=>row.map(String))},clearContent(){for(let i=0;i<c;i++)for(let j=0;j<d;j++)if(sheet.rows[a-1+i])sheet.rows[a-1+i][b-1+j]=''}};
+   return {createTextFinder(text){
+    let entire=false,caseSensitive=false,regex=false;
+    return {matchEntireCell(value){entire=value;return this},matchCase(value){caseSensitive=value;return this},useRegularExpression(value){regex=value;return this},findNext(){
+     if(regex)throw new Error('Unexpected regex search');
+     for(let i=0;i<c;i++)for(let j=0;j<d;j++){
+      let value=String(sheet.rows[a-1+i]?.[b-1+j]??''),query=String(text);
+      if(!caseSensitive){value=value.toLowerCase();query=query.toLowerCase()}
+      if(entire?value===query:value.includes(query))return {getRow:()=>a+i};
+     }
+     return null;
+    }};
+   },setValues(values){for(let i=0;i<values.length;i++){sheet.rows[a-1+i]??=[];for(let j=0;j<values[i].length;j++)sheet.rows[a-1+i][b-1+j]=values[i][j]}},getValues(){return Array.from({length:c},(_,i)=>Array.from({length:d},(_,j)=>sheet.rows[a-1+i]?.[b-1+j]??''))},getDisplayValues(){return this.getValues().map(row=>row.map(String))},clearContent(){for(let i=0;i<c;i++)for(let j=0;j<d;j++)if(sheet.rows[a-1+i])sheet.rows[a-1+i][b-1+j]=''}};
   }
  }
  const book={getSheetByName:name=>sheets.get(name)||null,insertSheet(name){const sheet=new Sheet();sheets.set(name,sheet);return sheet}};

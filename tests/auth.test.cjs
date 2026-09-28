@@ -93,14 +93,14 @@ test('STG date saves and appears under its own audit field',()=>{
 });
 
 
-test('session lookup searches older batches while recent sessions use one batch',()=>{
+test('session lookup reads only the matched row even for old sessions',()=>{
  const app=harness();setupAdmin(app);
  const first=app.run("loginPayload({username:'admin',password:'password1'})");
  const sheet=app.sheets.get('웹앱_세션');
  for(let i=0;i<250;i++)sheet.appendRow(['other-'+i,'admin',first.expiresAt]);
- const sizes=[],getRange=sheet.getRange.bind(sheet);sheet.getRange=(...args)=>{sizes.push(args[2]);return getRange(...args)};
- assert.equal(app.run('requireSession('+JSON.stringify(first.token)+').role'),'admin');assert.deepEqual(sizes,[100,100,51]);
- sizes.length=0;assert.equal(app.run("requireSession('other-249').role"),'admin');assert.deepEqual(sizes,[100]);
+ const sizes=[],getRange=sheet.getRange.bind(sheet);sheet.getRange=(...args)=>{const range=getRange(...args),read=range.getValues;range.getValues=function(){sizes.push(args[2]);return read.call(this)};return range};
+ assert.equal(app.run('requireSession('+JSON.stringify(first.token)+').role'),'admin');assert.deepEqual(sizes,[1]);
+ sizes.length=0;assert.equal(app.run("requireSession('other-249').role"),'admin');assert.deepEqual(sizes,[1]);
 });
 
 
@@ -155,4 +155,22 @@ test('password bounds and persistent sessions enforce new policy',()=>{
  setupAdmin(app);const session=app.run("loginPayload({username:'admin',password:'password1'})");assert.equal(session.expiresAt,'');
  app.run('Date=class extends Date {static now(){return 4102444800000}}');assert.equal(app.run('requireSession('+JSON.stringify(session.token)+').role'),'admin');
  app.run('logoutPayload('+JSON.stringify(session.token)+')');assert.throws(()=>app.run('requireSession('+JSON.stringify(session.token)+')'));
+});
+
+test('session lookup rejects partial, wrong-case, expired and disabled credentials',()=>{
+ const app=harness();setupAdmin(app);
+ const session=app.run("loginPayload({username:'admin',password:'password1'})");
+ for(const token of [session.token.slice(1),session.token.toUpperCase(),'.*'])assert.throws(()=>app.run('requireSession('+JSON.stringify(token)+')'));
+ const sheet=app.sheets.get('웹앱_세션');sheet.rows[1][2]='2000-01-01';
+ assert.throws(()=>app.run('requireSession('+JSON.stringify(session.token)+')'));
+ sheet.rows[1][2]='';app.sheets.get('웹앱_계정').rows[1][5]=false;
+ assert.throws(()=>app.run('requireSession('+JSON.stringify(session.token)+')'));
+});
+test('login hashes outside the write lock and rechecks credentials before issuing a session',()=>{
+ const app=harness();setupAdmin(app);
+ app.run("let held=false;LockService.getScriptLock=()=>({waitLock(){held=true},releaseLock(){held=false}});const originalHash=passwordHash;passwordHash=(p,s)=>{if(held)throw Error('hash holds lock');return originalHash(p,s)}");
+ assert.ok(app.run("loginPayload({username:'admin',password:'password1'}).token"));
+ app.run("LockService.getScriptLock=()=>({waitLock(){authSheet().rows[1][4]='changed'},releaseLock(){}})");
+ assert.throws(()=>app.run("loginPayload({username:'admin',password:'password1'})"),/계정 정보/);
+ assert.equal(app.sheets.get('웹앱_세션').rows.length,2);
 });
