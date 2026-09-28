@@ -39,7 +39,7 @@ function previewSnapshot(){
 }
 let pendingRequests=0;
 function updateLoadingBar(delta){pendingRequests=Math.max(0,pendingRequests+delta);const bar=$('#loadingBar');if(!bar)return;const active=pendingRequests>0;bar.classList?.toggle('active',active);bar.setAttribute?.('aria-hidden',String(!active))}
-function requestTimeout(action){return ['login','setupAdmin','createUser'].includes(action)?90000:60000;}
+function requestTimeout(action){return ['login','setupAdmin','createUser','changePassword'].includes(action)?90000:60000;}
 function requestError(error){
  if(['TimeoutError','AbortError'].includes(error.name)||/signal timed out/i.test(error.message))return new Error('서버 응답 시간이 초과되었습니다. 잠시 후 다시 시도해 주세요. 계정 생성 중이었다면 계정 목록을 먼저 확인해 주세요.');
  return error;
@@ -57,10 +57,9 @@ function requestServer(payload){
 async function sendRequest(payload){
   const workspace=currentWorkspace;
   if(!window.APPS_SCRIPT_URL)throw new Error('config.js에 Apps Script 웹 앱 URL을 설정해 주세요.');
-  const publicRead=payload.action==='loadAudit'||(payload.action==='load'&&!authToken);
+  const publicRead=false;
   const url=new URL(window.APPS_SCRIPT_URL);
-  if(publicRead){url.searchParams.set('action',payload.action);url.searchParams.set('workspace',workspace);if(payload.cursor!==undefined)url.searchParams.set('cursor',payload.cursor);}
-  const response=await trackedFetch(url.toString(),{method:publicRead?'GET':'POST',cache:'no-store',...(!publicRead?{headers:{'Content-Type':'text/plain;charset=utf-8'},body:JSON.stringify({...payload,workspace:workspace,token:authToken})}:{}),signal:AbortSignal.timeout(requestTimeout(payload.action))});
+  const response=await trackedFetch(url.toString(),{method:'POST',cache:'no-store',...({headers:{'Content-Type':'text/plain;charset=utf-8'},body:JSON.stringify({...payload,workspace:workspace,token:authToken})}),signal:AbortSignal.timeout(requestTimeout(payload.action))});
   if(!response.ok)throw new Error('서버 응답 오류 (HTTP '+response.status+')');
   let result;
   try{result=await response.json()}catch(error){if(['TimeoutError','AbortError'].includes(error.name))throw error;throw new Error('서버가 JSON을 반환하지 않습니다. 웹 앱 배포와 접근 권한을 확인해 주세요.')}
@@ -87,7 +86,7 @@ async function load(){
     catch(error){
       if(version!==loadVersion)return;
       if(authToken&&/로그인이 (필요|만료)/.test(error.message)){
-        clearAuthSession();currentUser=guestUser;applyPermissions(false);
+        clearAuthSession();openLogin();throw error;
       }else if(!['TimeoutError','AbortError','TypeError'].includes(error.name)&&!/timed? ?out/i.test(error.message))throw error;
 
       $('#saveStatus').textContent='● 서버 응답이 지연되어 다시 불러오는 중…';
@@ -268,6 +267,7 @@ function updateWorkspaceHeader(){
  $$('aside [data-workspace]').forEach(b=>b.classList.toggle('active',b.dataset.workspace===currentWorkspace));
 }
 async function switchWorkspace(key){
+ if(!authToken){openLogin();return;}
  if(saving||!Object.hasOwn(workspaceNames,key))return;
  if(key!==currentWorkspace&&loading)leavePendingLoad();
  showWorkspacePage(key);
@@ -291,6 +291,7 @@ function showWorkspacePage(key){closeGuide();
  homeVisible=false;$('#homePage').hidden=true;$('#workspacePage').hidden=false;setRoute(key);
 }
 function showHome(){closeGuide();
+ if(!authToken){openLogin();return;}
  if(saving)return;
  if(loading)leavePendingLoad();
  document.activeElement?.blur?.();
@@ -298,6 +299,7 @@ function showHome(){closeGuide();
  document.title='유플러스 업무 관리';setRoute('');showHomeGuide();
 }
 async function restoreRoute(){
+ if(!authToken){openLogin();return;}
  const key=window.location.hash.slice(1);
  if(saving){window.history.replaceState(null,'',window.location.pathname+window.location.search+(homeVisible?'':'#'+currentWorkspace));return}
  if(Object.hasOwn(workspaceNames,key))await switchWorkspace(key);
@@ -394,7 +396,7 @@ function formatHistoryTime(value){
  return new Date(date.getTime()+9*60*60*1000).toISOString().slice(0,16).replace('T',' ');
 }
 function roleName(role){return {admin:'관리자',editor:'편집자'}[role]||role}
-function applyPermissions(renderRows=true){if(!currentUser)return;$$('[data-logout]').forEach(el=>el.hidden=!authToken);$$('[data-login]').forEach(el=>el.hidden=Boolean(authToken));$('#currentUser').textContent=currentUser.name+(currentUser.role?' · '+roleName(currentUser.role):'');$('#usersButton').hidden=currentUser.role!=='admin';const editable=canEdit();$('#workspacePage').classList.toggle('read-only',!editable);['newTask','carryOver','saveAll','deleteToggle'].forEach(id=>$('#'+id).disabled=!editable);if(renderRows)render();}
+function applyPermissions(renderRows=true){if(!currentUser)return;$$('[data-password]').forEach(el=>el.hidden=!authToken||!canEdit());$$('[data-logout]').forEach(el=>el.hidden=!authToken);$$('[data-login]').forEach(el=>el.hidden=Boolean(authToken));$('#currentUser').textContent=currentUser.name+(currentUser.role?' · '+roleName(currentUser.role):'');$('#usersButton').hidden=currentUser.role!=='admin';const editable=canEdit();$('#workspacePage').classList.toggle('read-only',!editable);['newTask','carryOver','saveAll','deleteToggle'].forEach(id=>$('#'+id).disabled=!editable);if(renderRows)render();}
 function showAuthenticated(){closeGuide();$('#authPage').hidden=true;$('#homePage').hidden=false;}
 async function publicRequest(payload){
  try{
@@ -405,16 +407,14 @@ async function publicRequest(payload){
 }
 
 const AUTH_USER_KEY='workflow-auth-user';
-function storeAuthUser(user){sessionStorage.setItem(AUTH_USER_KEY,JSON.stringify(user));}
-function clearAuthSession(){try{sessionStorage.removeItem('workflow-auth-token');sessionStorage.removeItem(AUTH_USER_KEY);}catch{}authToken='';currentUser=null;}
-async function validateRestoredSession(){try{const result=await requestServer({action:'session'});currentUser=result.user;storeAuthUser(currentUser);applyPermissions();}catch{clearAuthSession();location.reload();}}
-const guestUser={name:'로그인 없이 조회 중'};
+function storeAuthUser(user){try{localStorage.setItem(AUTH_USER_KEY,JSON.stringify(user));}catch{}}
+function clearAuthSession(){try{localStorage.removeItem('workflow-auth-token');localStorage.removeItem(AUTH_USER_KEY);sessionStorage.removeItem('workflow-auth-token');sessionStorage.removeItem(AUTH_USER_KEY);}catch{}authToken='';currentUser=null;serverConnected=false;}
 async function initAuth(){
- currentUser=guestUser;
- try{authToken=sessionStorage.getItem('workflow-auth-token')||'';}catch{}
- showAuthenticated();applyPermissions();
- await restoreRoute();
- if(authToken&&!serverConnected)validateRestoredSession();
+ try{authToken=localStorage.getItem('workflow-auth-token')||sessionStorage.getItem('workflow-auth-token')||'';}catch{}
+ openLogin();if(!authToken)return;
+ $('#authError').textContent='로그인 상태를 확인하고 있습니다…';
+ try{const result=await requestServer({action:'session'});currentUser=result.user;try{localStorage.setItem('workflow-auth-token',authToken);}catch{}storeAuthUser(currentUser);showAuthenticated();applyPermissions();await restoreRoute();}
+ catch(error){if(/로그인이 (필요|만료)/.test(error.message))clearAuthSession();$('#authError').textContent=requestError(error).message;}
 }
 function configureLogin(){
  $('#authTitle').textContent=setupRequired?'초기 관리자 생성':'로그인';
@@ -441,9 +441,30 @@ function openLogin(){closeGuide();
  $('#loginUsername').focus();
 }
 $$('[data-login]').forEach(el=>el.onclick=openLogin);
-$('#cancelLogin').onclick=()=>{showAuthenticated();restoreRoute();};
-$("#authForm").onsubmit=async(event)=>{event.preventDefault();$("#authError").textContent="로그인 정보를 확인하고 있습니다…";$("#loginSubmit").disabled=true;try{if(setupRequired){await publicRequest({action:"setupAdmin",username:$("#loginUsername").value,password:$("#loginPassword").value,name:$("#loginName").value,});setupRequired=false;}const result=await publicRequest({action:"login",username:$("#loginUsername").value,password:$("#loginPassword").value,});if(result.setupRequired){setupRequired=true;configureLogin();$('#loginName').focus();return;}authToken=result.token;currentUser=result.user;sessionStorage.setItem("workflow-auth-token",authToken);storeAuthUser(currentUser);showAuthenticated();applyPermissions();await restoreRoute();}catch(error){$("#authError").textContent=error.message;}finally{$("#loginSubmit").disabled=false;}};
+
+$("#authForm").onsubmit=async(event)=>{event.preventDefault();$("#authError").textContent="로그인 정보를 확인하고 있습니다…";$("#loginSubmit").disabled=true;try{if(setupRequired){await publicRequest({action:"setupAdmin",username:$("#loginUsername").value,password:$("#loginPassword").value,name:$("#loginName").value,});setupRequired=false;}const result=await publicRequest({action:"login",username:$("#loginUsername").value,password:$("#loginPassword").value,});if(result.setupRequired){setupRequired=true;configureLogin();$('#loginName').focus();return;}authToken=result.token;currentUser=result.user;try{localStorage.setItem("workflow-auth-token",authToken);}catch{}storeAuthUser(currentUser);showAuthenticated();applyPermissions();await restoreRoute();}catch(error){$("#authError").textContent=error.message;}finally{$("#loginSubmit").disabled=false;}};
 $$("[data-logout]").forEach(el=>el.onclick=async()=>{try{await requestServer({action:"logout"});}catch{}clearAuthSession();location.reload();});
+let passwordChanging=false;
+$$('[data-password]').forEach(el=>el.onclick=()=>{
+ if(!authToken||!canEdit())return;
+ $('#passwordForm').reset();$('#passwordMessage').textContent='';$('#passwordDialog').showModal();
+});
+$('#closePassword').onclick=()=>{if(!passwordChanging){$('#passwordForm').reset();$('#passwordDialog').close();}};
+$('#passwordDialog').addEventListener('cancel',event=>{if(passwordChanging)event.preventDefault();else $('#passwordForm').reset();});
+$('#passwordForm').onsubmit=async event=>{
+ event.preventDefault();if(passwordChanging||!authToken)return;
+ const currentPassword=$('#currentPassword').value,newPassword=$('#nextPassword').value;
+ if(newPassword!==$('#confirmPassword').value){$('#passwordMessage').textContent='새 비밀번호 확인이 일치하지 않습니다.';return;}
+ if(newPassword===currentPassword){$('#passwordMessage').textContent='새 비밀번호는 현재 비밀번호와 다르게 입력해 주세요.';return;}
+ if(newPassword.length<8||newPassword.length>20){$('#passwordMessage').textContent='새 비밀번호는 8~20자로 입력해 주세요.';return;}
+ passwordChanging=true;$('#submitPassword').disabled=true;$('#closePassword').disabled=true;$('#passwordMessage').textContent='비밀번호를 변경하고 있습니다…';
+ try{
+  await requestServer({action:'changePassword',currentPassword,newPassword});
+  $('#passwordForm').reset();$('#passwordDialog').close();clearAuthSession();openLogin();
+  $('#loginPassword').value='';$('#authError').textContent='비밀번호가 변경되었습니다. 새 비밀번호로 로그인해 주세요.';
+ }catch(error){$('#passwordMessage').textContent=['TimeoutError','AbortError'].includes(error.name)?'응답 시간이 초과되었습니다. 변경이 완료되었을 수 있으니 새 비밀번호로 로그인을 확인해 주세요.':error.message;}
+ finally{passwordChanging=false;$('#submitPassword').disabled=false;$('#closePassword').disabled=false;}
+};
 let usersLoading=false;
 $('#usersButton').onclick=async()=>{if(usersLoading)return;usersLoading=true;$('#userError').textContent='';$('#userList').textContent='계정 목록을 불러오는 중…';$('#usersDialog').showModal();try{const result=await requestServer({action:'listUsers'});$('#userList').innerHTML=result.users.map(u=>`<div class="user-row"><span><strong>${esc(u.name)}</strong><small>${esc(u.username)}</small></span><span class="role-badge">${esc(roleName(u.role))}</span></div>`).join('');$('#userError').textContent='';}catch(error){$('#userList').textContent='계정 목록을 불러오지 못했습니다.';$('#userError').textContent=requestError(error).message;}finally{usersLoading=false;}};
 $('#createUserButton').onclick=async()=>{if($('#createUserButton').disabled)return;$('#createUserButton').disabled=true;$('#userError').textContent='계정을 생성하고 있습니다…';try{await requestServer({action:'createUser',name:$('#newUserName').value,username:$('#newUsername').value,password:$('#newUserPassword').value,role:$('#newUserRole').value});$('#usersDialog').close();$('#usersButton').click();}catch(error){$('#userError').textContent=requestError(error).message;}finally{$('#createUserButton').disabled=false;}};

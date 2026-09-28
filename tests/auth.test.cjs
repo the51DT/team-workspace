@@ -46,12 +46,12 @@ test('accounts enforce roles and editor saves create audit history',()=>{
  assert.ok(audit.entries.some(entry=>entry.name==='편집자'&&entry.field==='단계'&&entry.before==='배정'&&entry.after==='진행중'));
 });
 
-test('public reads work in every workspace while mutations still require a session',()=>{
+test('all workspace reads and mutations require a session',()=>{
  const app=harness();app.run('jsonResponse=payload=>payload');
  const post=payload=>app.run('doPost({postData:{contents:'+JSON.stringify(JSON.stringify(payload))+'}})');
  for(const workspace of ['cx','enterprise','aldot']){
-  assert.equal(post({action:'load',workspace}).ok,true);
-  const history=post({action:'loadAudit',workspace});assert.equal(history.ok,true);assert.equal(history.workspace,workspace);
+  assert.equal(post({action:'load',workspace}).ok,false);
+  const history=post({action:'loadAudit',workspace});assert.equal(history.ok,false);assert.match(history.error,/로그인/);
  }
  for(const action of ['save','saveWorkers','listUsers','createUser']){
   const result=post({action,workspace:'cx',tasks:[],workers:[]});assert.equal(result.ok,false);assert.match(result.error,/로그인/);
@@ -67,12 +67,12 @@ test('nine-column work hours are recorded with the correct audit field',()=>{
 });
 
 
-test('GET exposes only workspace-scoped public reads and never performs mutations',()=>{
+test('GET never exposes private reads or mutations',()=>{
  const app=harness();app.run('jsonResponse=payload=>payload');
  const get=parameter=>app.run('doGet({parameter:'+JSON.stringify(parameter)+'})');
  for(const workspace of ['cx','enterprise','aldot']){
   for(const action of ['load','loadAudit']){
-   const result=get({action,workspace});assert.equal(result.ok,true);assert.equal(result.workspace,workspace);
+   const result=get({action,workspace});assert.equal(result.ok,false);assert.match(result.error,/로그인/);
   }
  }
  for(const action of ['save','saveWorkers','setupAdmin','createUser','login','listUsers','logout','session']){
@@ -152,4 +152,32 @@ test('workspace ledger backup replaces the matching sheet with table data',()=>{
   assert.deepEqual(app.sheets.get(name).rows,[headers,...rows]);
   assert.equal(app.sheets.get(name).frozenRows,1);
  }
+});
+
+
+test('password change verifies current password, updates only the session owner and revokes their sessions',()=>{
+ const app=harness();app.run("setupAdmin({username:'admin',password:'password1',name:'관리자'})");
+ app.run("createUserPayload({username:'editor',password:'password2',name:'편집자',role:'editor'})");
+ const admin=app.run("loginPayload({username:'admin',password:'password1'})"),first=app.run("loginPayload({username:'editor',password:'password2'})"),second=app.run("loginPayload({username:'editor',password:'password2'})");
+ const change=(currentPassword,newPassword)=>app.run('changePasswordPayload('+JSON.stringify({token:first.token,username:'admin',currentPassword,newPassword})+')');
+ assert.throws(()=>change('incorrect','newpassword'),/현재 비밀번호/);
+ assert.throws(()=>change('password2','short'));
+ assert.throws(()=>change('password2','password2'));
+ assert.equal(change('password2','newpassword').ok,true);
+ assert.throws(()=>app.run('requireSession('+JSON.stringify(first.token)+')'));
+ assert.throws(()=>app.run('requireSession('+JSON.stringify(second.token)+')'));
+ assert.equal(app.run('requireSession('+JSON.stringify(admin.token)+').role'),'admin');
+ assert.throws(()=>app.run("loginPayload({username:'editor',password:'password2'})"));
+ assert.ok(app.run("loginPayload({username:'editor',password:'newpassword'}).token"));
+ assert.ok(!JSON.stringify(app.sheets.get('웹앱_계정').rows).includes('newpassword'));
+ assert.throws(()=>app.run("changePasswordPayload({currentPassword:'password1',newPassword:'newpassword'})"),/로그인/);
+});
+
+
+test('password bounds and persistent sessions enforce new policy',()=>{
+ const app=harness();for(const n of [7,21,100])assert.throws(()=>app.run('cleanPassword('+JSON.stringify('a'.repeat(n))+')'));
+ for(const n of [8,20])assert.equal(app.run('cleanPassword('+JSON.stringify('a'.repeat(n))+')').length,n);
+ app.run("setupAdmin({username:'admin',password:'password1',name:'관리자'})");const session=app.run("loginPayload({username:'admin',password:'password1'})");assert.equal(session.expiresAt,'');
+ app.run('Date=class extends Date {static now(){return 4102444800000}}');assert.equal(app.run('requireSession('+JSON.stringify(session.token)+').role'),'admin');
+ app.run('logoutPayload('+JSON.stringify(session.token)+')');assert.throws(()=>app.run('requireSession('+JSON.stringify(session.token)+')'));
 });

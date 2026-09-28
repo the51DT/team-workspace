@@ -12,7 +12,7 @@ function app(handler,storage=new Map(),hash='#cx',guest=false){
     fetch:async(url,options)=>{const payload=options.method==='GET'?Object.fromEntries(new URL(url).searchParams):JSON.parse(options.body);requests.push({url,payload,method:options.method,headers:options.headers});const result=await handler(payload);return {ok:true,json:async()=>result}},
     localStorage:{getItem:key=>storage.get(key)??null,setItem:(key,value)=>storage.set(key,value),removeItem:key=>storage.delete(key)},alert(){},confirm:()=>true,requestAnimationFrame:fn=>fn(),setTimeout,
     document:{querySelector:element,querySelectorAll:()=>[],...(guest?{getElementById:element}:{})}});
-  const ready=vm.runInContext(source,context);
+  const ready=vm.runInContext(guest?source:source.replace("let authToken=''","let authToken='test-session'"),context);
   return {ready,requests,element,run:code=>vm.runInContext(code,context)};
 }
 const task=['9/19','123','작업자 A','배정','2026-09-20','업무 제목','메모','1.5','0'];
@@ -263,25 +263,20 @@ test('unknown workspace route opens home without loading data',async()=>{
 });
 
 
-test('guest home opens without authentication requests and workspace is read only',async()=>{
- const page=app(p=>({ok:true,workspace:p.workspace,tasks:[task]}),new Map(),'',true);await page.ready;
- assert.equal(page.requests.length,0);assert.equal(page.element('#homePage').hidden,false);assert.equal(page.element('#authPage').hidden,true);
- await page.run("switchWorkspace('enterprise')");
- assert.equal(page.requests.length,1);assert.equal(page.requests[0].payload.action,'load');
- assert.equal(page.element('#saveAll').disabled,true);assert.equal(page.element('#usersButton').hidden,true);
- assert.equal(page.element('#workspacePage').classList.active,true);
- await page.run('saveAll()');assert.equal(page.requests.length,1);
+test('unauthenticated visitors cannot open home or workspaces',async()=>{
+ const page=app(()=>({ok:true,tasks:[task]}),new Map(),'',true);await page.ready;
+ assert.equal(page.element('#authPage').hidden,false);assert.equal(page.element('#homePage').hidden,true);
+ await page.run("switchWorkspace('enterprise')");assert.equal(page.requests.length,0);assert.equal(page.element('#workspacePage').hidden,true);
 });
 
-
-test('public reads use explicit GET parameters while authenticated loads and saves use POST',async()=>{
+test('all reads and saves use authenticated POST',async()=>{
  const page=app(p=>({ok:true,workspace:p.workspace,tasks:[]}));await page.ready;
- assert.equal(page.requests[0].method,'GET');assert.equal(new URL(page.requests[0].url).searchParams.get('workspace'),'cx');
+ assert.equal(page.requests[0].method,'POST');assert.equal(page.requests[0].payload.workspace,'cx');
  assert.equal(new URL(page.requests[0].url).searchParams.has('token'),false);
  page.run("authToken='secret';currentUser={name:'편집자',role:'editor'}");await page.run('load()');
  assert.equal(page.requests[1].method,'POST');assert.equal(page.requests[1].payload.token,'secret');
  await page.run('saveAll()');assert.equal(page.requests[2].method,'POST');
- await page.run("requestServer({action:'loadAudit'})");assert.equal(page.requests[3].method,'GET');assert.equal(page.requests[3].url.includes('secret'),false);
+ await page.run("requestServer({action:'loadAudit'})");assert.equal(page.requests[3].method,'POST');assert.equal(page.requests[3].url.includes('secret'),false);
 });
 
 test('old GET deployment gives actionable update instructions and keeps saving disabled',async()=>{
@@ -303,7 +298,7 @@ test('opening login is immediate and login submits without an auth status reques
 test('cached list is visible while fresh server data is still pending and saving stays disabled',async()=>{
  const storage=new Map([['workflow-snapshot-v1:https://example.test/exec:cx',JSON.stringify({tasks:[task]})]]);
  let resolve;const pending=new Promise(done=>resolve=done);
- const page=app(()=>pending,storage,'#cx',true);
+ const page=app(()=>pending,storage,'#cx');
  await new Promise(done=>setImmediate(done));
  assert.match(page.element('#rows').innerHTML,/업무 제목/);assert.equal(page.element('#saveAll').disabled,true);
  resolve({ok:true,workspace:'cx',tasks:[task]});await page.ready;
@@ -381,18 +376,18 @@ test('failed request from a previous workspace cannot disconnect the current one
 });
 
 
-test('expired login falls back to public read without enabling editing',async()=>{
+test('invalid session returns to login without public fallback',async()=>{
  const page=app(p=>p.token?{ok:false,error:'로그인이 만료되었습니다.'}:{ok:true,workspace:p.workspace,tasks:[task]});await page.ready;
  page.run("authToken='expired';currentUser={name:'편집자',role:'editor'}");await page.run('load()');
- assert.equal(page.run('serverConnected'),true);assert.equal(page.run('authToken'),'');
- assert.equal(page.element('#saveAll').disabled,true);assert.equal(page.requests.at(-1).method,'GET');
+ assert.equal(page.run('serverConnected'),false);assert.equal(page.run('authToken'),'');
+ assert.equal(page.element('#saveAll').disabled,true);assert.equal(page.element('#authPage').hidden,false);
 });
 
 
 test('home guide appears only on home, once per Korean calendar day including after reload',async()=>{
  const storage=new Map();
  const page=app(()=>({ok:true,tasks:[]}),storage,'',true);await page.ready;
- page.run("guideCount=0;document.querySelector('#guideDialog').showModal=function(){this.open=true;guideCount++};document.querySelector('#guideDialog').close=function(){this.open=false}");
+ page.run("document.querySelector('#authPage').hidden=true;guideCount=0;document.querySelector('#guideDialog').showModal=function(){this.open=true;guideCount++};document.querySelector('#guideDialog').close=function(){this.open=false}");
  page.run("document.querySelector('#homePage').hidden=true;showHomeGuide(new Date('2026-09-23T01:00:00Z'))");assert.equal(page.run('guideCount'),0);
  page.run("document.querySelector('#homePage').hidden=false;showHomeGuide(new Date('2026-09-23T01:00:00Z'));closeGuide();showHomeGuide(new Date('2026-09-23T14:59:59Z'))");
  assert.equal(page.run('guideCount'),1);
@@ -403,7 +398,7 @@ test('home guide appears only on home, once per Korean calendar day including af
 
 test('home guide stops at November 1 Korean time and works when browser storage is unavailable',async()=>{
  const page=app(()=>({ok:true,tasks:[]}),new Map(),'',true);await page.ready;
- page.run("guideCount=0;document.querySelector('#homePage').hidden=false;document.querySelector('#guideDialog').showModal=function(){this.open=true;guideCount++};document.querySelector('#guideDialog').close=function(){this.open=false};localStorage.getItem=()=>{throw Error('blocked')};localStorage.setItem=()=>{throw Error('blocked')}");
+ page.run("document.querySelector('#authPage').hidden=true;guideCount=0;document.querySelector('#homePage').hidden=false;document.querySelector('#guideDialog').showModal=function(){this.open=true;guideCount++};document.querySelector('#guideDialog').close=function(){this.open=false};localStorage.getItem=()=>{throw Error('blocked')};localStorage.setItem=()=>{throw Error('blocked')}");
  page.run("showHomeGuide(new Date('2026-10-31T14:59:59Z'));closeGuide();showHomeGuide(new Date('2026-10-31T14:59:59Z'))");assert.equal(page.run('guideCount'),1);
  page.run("showHomeGuide(new Date('2026-10-31T15:00:00Z'))");assert.equal(page.run('guideCount'),1);
 });
@@ -513,4 +508,12 @@ test('ledger failure retains carry save context for retry',async()=>{
  await page.run('selectedMonth=new Date(2026,8,1);carryOver()');await page.run('saveAll()');
  assert.equal(page.run("pendingLedgerMonths.get('cx')"),'2026-09');assert.equal(page.requests.filter(r=>r.payload.action==='save').length,0);
  fail=false;await page.run('saveAll()');assert.equal(page.run('pendingLedgerMonths.size'),0);
+});
+
+
+test('password confirmation mismatch does not send a request',async()=>{
+ const page=app(()=>({ok:true,tasks:[]}),new Map(),'');await page.ready;
+ page.run("authToken='session'");page.element('#currentPassword').value='password1';page.element('#nextPassword').value='password2';page.element('#confirmPassword').value='different';
+ await page.element('#passwordForm').onsubmit({preventDefault(){}});
+ assert.equal(page.requests.length,0);assert.match(page.element('#passwordMessage').textContent,/일치하지/);
 });

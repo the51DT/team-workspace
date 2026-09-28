@@ -26,7 +26,7 @@
     >
       <span></span>
     </div>
-    <div id="authPage" class="auth-page" hidden>
+    <div id="authPage" class="auth-page">
       <form id="authForm" class="auth-card">
         <p class="home-brand">▥ WORK<span>FLOW</span></p>
         <h1 id="authTitle">로그인</h1>
@@ -42,18 +42,18 @@
             id="loginPassword"
             type="password"
             autocomplete="current-password"
-            minlength="8"
+            minlength="8" maxlength="20"
             required
         /></label>
         <button id="loginSubmit" type="submit">로그인</button>
-        <button id="cancelLogin" type="button">로그인 없이 조회</button>
         <p id="authError" role="alert"></p>
       </form>
     </div>
-    <div id="homePage" class="home-page">
+    <div id="homePage" class="home-page" hidden>
       <div class="account-actions">
         <button type="button" data-login>로그인</button>
         <button id="usersButton" type="button" hidden>계정 관리</button>
+        <button type="button" data-password hidden>비밀번호 변경</button>
         <button type="button" data-logout hidden>로그아웃</button>
       </div>
       <div class="home-content">
@@ -109,6 +109,7 @@
           <div class="workspace-account-actions">
             <button id="historyButton" type="button">수정 이력</button>
             <button type="button" data-login>로그인</button>
+            <button type="button" data-password hidden>비밀번호 변경</button>
             <button id="logoutButton" type="button" data-logout hidden>
               로그아웃
             </button>
@@ -245,9 +246,9 @@
       <form method="dialog" class="dialog-card guide-card">
         <header><h2 id="guideTitle">업무 관리 사용 가이드</h2><button value="close" aria-label="사용 가이드 닫기">×</button></header>
         <div class="dialog-body">
-        <p id="guideIntro">조회는 자유롭게, 수정 후에는 꼭 저장해 주세요.</p>
+        <p id="guideIntro">로그인 후 업무를 확인하고, 수정 후에는 꼭 저장해 주세요.</p>
         <ol class="guide-steps">
-          <li><strong>업무 공간 선택</strong><p>CX · 기업 · 알닷 중 담당 업무 공간을 선택하세요. 로그인 없이 업무와 수정 이력을 볼 수 있습니다.</p></li>
+          <li><strong>업무 공간 선택</strong><p>CX · 기업 · 알닷 중 담당 업무 공간을 선택하세요. 로그인 후 업무와 수정 이력을 볼 수 있습니다.</p></li>
           <li><strong>로그인 후 작성·수정</strong><p>관리자·편집자 계정으로 로그인하면 새 업무를 추가하거나 표의 내용을 수정할 수 있습니다. 새 업무는 작업자와 업무제목을 모두 입력하세요.</p></li>
           <li><strong>변경 후 저장 버튼 클릭</strong><p>작성·수정·이월한 내용은 <b>저장</b> 버튼을 눌러 반영하세요. 재이월하면 원래 달의 내용으로 기존 이월 업무를 덮어쓰며 작업시간·조정은 비워집니다. 삭제는 확인 즉시 현재 변경 내용과 함께 저장됩니다. 저장 완료 문구를 확인한 뒤 페이지를 닫으세요. 저장 실패 시 입력 내용을 확인하고 다시 저장해 주세요.</p></li>
           <li><strong>월·검색·필터로 찾기</strong><p>월을 이동하거나 업무명·작업자·RMS를 검색하세요. 진행중 / 전체 탭과 작업자·단계 필터로 목록을 좁힐 수 있습니다.</p></li>
@@ -256,6 +257,20 @@
         </ol>
         <p class="guide-note">이 안내는 메인페이지에서 하루 한 번, 2026년 10월 31일까지 표시됩니다.</p>
         <button value="confirm" autofocus>확인했어요 · 시작하기</button>
+        </div>
+      </form>
+    </dialog>
+    <dialog id="passwordDialog" aria-labelledby="passwordTitle">
+      <form id="passwordForm" class="dialog-card">
+        <header><h2 id="passwordTitle">비밀번호 변경</h2><button id="closePassword" type="button" aria-label="닫기">×</button></header>
+        <div class="dialog-body">
+          <p>현재 비밀번호를 확인한 후 변경합니다. 변경하면 모든 기기에서 로그아웃됩니다.</p>
+          <label>현재 비밀번호<input id="currentPassword" type="password" autocomplete="current-password" minlength="8" maxlength="20" required /></label>
+          <label>새 비밀번호<input id="nextPassword" type="password" autocomplete="new-password" minlength="8" maxlength="20" required /></label>
+          <label>새 비밀번호 확인<input id="confirmPassword" type="password" autocomplete="new-password" minlength="8" maxlength="20" required /></label>
+          <p>비밀번호는 8~20자로 입력해 주세요.</p>
+          <p id="passwordMessage" role="status" aria-live="polite"></p>
+          <button id="submitPassword" type="submit">비밀번호 변경</button>
         </div>
       </form>
     </dialog>
@@ -274,7 +289,7 @@
           >비밀번호<input
             id="newUserPassword"
             type="password"
-            minlength="8" /></label
+            minlength="8" maxlength="20" /></label
         ><label
           >권한<select id="newUserRole">
             <option value="editor">편집자</option>
@@ -298,7 +313,7 @@
         </div>
       </form>
     </dialog>
-    <script src="config.js?v=20260928-1"></script>
-    <script src="app.js?v=20260928-2"></script>
+    <script src="config.js?v=20260928-2"></script>
+    <script src="app.js?v=20260928-4"></script>
   </body>
 </html>
