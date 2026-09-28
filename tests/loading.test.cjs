@@ -16,6 +16,9 @@ function app(handler,storage=new Map(),hash='#cx',guest=false){
   return {ready,requests,element,run:code=>vm.runInContext(code,context)};
 }
 const task=['9/19','123','작업자 A','배정','2026-09-20','업무 제목','메모','1.5','0'];
+function timeoutError(){return Object.assign(new Error('signal timed out'),{name:'TimeoutError'});}
+function nextTurn(){return new Promise(resolve=>setImmediate(resolve));}
+
 test('new tasks stay below existing tasks after consecutive saves and reload',async()=>{
   let tasks=[task];
   const page=app(p=>{if(p.action==='save'){tasks=p.tasks;return {ok:true}}return {ok:true,tasks}});
@@ -33,7 +36,7 @@ test('new tasks stay below existing tasks after consecutive saves and reload',as
 });
 test('loading bar is active only while a server request is pending',async()=>{
  let resolve;const pending=new Promise(done=>resolve=done);const page=app(()=>pending);
- await new Promise(done=>setImmediate(done));
+ await nextTurn();
  assert.equal(page.element('#loadingBar').classList.active,true);
  resolve({ok:true,tasks:[task]});await page.ready;
  assert.equal(page.element('#loadingBar').classList.active,false);
@@ -42,16 +45,6 @@ test('load uses Apps Script tasks and maps nine columns without losing work hour
   const page=app(()=>({ok:true,tasks:[task],updatedAt:'2026-09-19T00:00:00Z',holidayError:'key missing'}));await page.ready;
   assert.equal(page.requests[0].payload.action,'load');assert.equal(page.run('data[0][9]'),'1.5');
   assert.match(page.element('#rows').innerHTML,/업무 제목/);assert.equal(page.run('serverConnected'),true);
-});
-test('edits remain local until the save button is used',async()=>{
- let saved;const page=app(p=>{if(p.action==='save'){saved=p.tasks;return {ok:true}}return {ok:true,tasks:[task]}});await page.ready;
- const before=page.requests.length;
- page.run("currentUser={role:'editor'};remember(0,5,'수동 저장 업무')");
- await new Promise(resolve=>setTimeout(resolve,850));
- assert.equal(saved,undefined);assert.equal(page.requests.length,before);
- assert.match(page.element('#saveStatus').textContent,/저장 버튼/);
- await page.element('#saveAll').onclick();
- assert.equal(saved[0][5],'수동 저장 업무');
 });
 test('save sends the full nine-column task list and reload retrieves it',async()=>{
   let tasks=[task];const page=app(p=>{if(p.action==='save'){tasks=p.tasks;return {ok:true,updatedAt:'saved'}}return {ok:true,tasks}});await page.ready;
@@ -75,12 +68,189 @@ test('save failure retains unsaved rows and reports the server error',async()=>{
   page.run('newRows.add(0)');await page.run('saveAll()');assert.equal(page.run('newRows.size'),1);assert.match(page.element('#saveStatus').textContent,/셀 저장 한도 초과/);
 });
 
-test('active tab excludes completed, held and carried-over tasks',async()=>{
- const tasks=['배정','진행중','내부검수','검수요청','반영대기','완료','보류','취소'].map(stage=>{const row=[...task];row[3]=stage;return row});
- const page=app(()=>({ok:true,tasks}));await page.ready;
- page.run("currentTab='active'");assert.equal(page.run('selected().length'),5);
- page.element('#worker').value='다른 작업자';assert.equal(page.run('selected().length'),0);
- page.element('#worker').value='all';page.run("currentTab='list'");assert.equal(page.run('selected().length'),8);
+test('tab selection refreshes the rendered rows immediately',async()=>{
+ const completed=[...task];completed[3]='완료';completed[5]='완료 업무';
+ const page=app(()=>({ok:true,tasks:[task,completed]}));await page.ready;
+ assert.doesNotMatch(page.element('#rows').innerHTML,/완료 업무/);
+ page.run("selectTab('list')");
+ assert.match(page.element('#rows').innerHTML,/완료 업무/);
+ page.run("selectTab('active')");
+ assert.doesNotMatch(page.element('#rows').innerHTML,/완료 업무/);
+});
+test('refresh button fetches changed server rows and clears stale search',async()=>{
+ let tasks=[task];const page=app(()=>({ok:true,tasks}));await page.ready;
+ tasks=[[...task.slice(0,5),'서버에서 바뀐 제목',...task.slice(6)]];
+ page.element('#search').value='이전 검색어';await page.element('#refresh').onclick();
+ assert.equal(page.requests.length,2);assert.equal(page.run('data[0][5]'),'서버에서 바뀐 제목');
+ assert.equal(page.element('#search').value,'');assert.match(page.element('#saveStatus').textContent,/새로고침 완료/);
+ assert.equal(page.element('#refresh').disabled,false);
+});
+
+
+
+test('notes allow Enter and preserve rendered line breaks through save and reload',async()=>{
+ let tasks=[task];const page=app(p=>{if(p.action==='save'){tasks=p.tasks;return {ok:true}}return {ok:true,tasks}});await page.ready;
+ page.run("note={dataset:{row:'0',col:'6'},innerText:'첫 줄\\n둘째 줄',textContent:'첫 줄둘째 줄',blur(){throw Error('unexpected blur')}};document.querySelectorAll=s=>s==='#rows [contenteditable]'?[note]:[];bind()");
+ page.run("note.onkeydown({key:'Enter',preventDefault(){throw Error('Enter blocked')}});note.oninput()");
+ await page.run('saveAll()');await page.run('load()');
+ assert.equal(page.run('data[0][6]'),'첫 줄\n둘째 줄');
+});
+
+test('initial load timeout retries once and unlocks saving after successful load',async()=>{
+ let attempts=0;const page=app(()=>{if(++attempts===1)throw timeoutError();return {ok:true,tasks:[task]}});await page.ready;
+ assert.equal(attempts,2);assert.equal(page.run('serverConnected'),true);assert.equal(page.element('#saveAll').disabled,false);
+});
+test('repeated load timeouts stop retrying and leave refresh available',async()=>{
+ let attempts=0;const page=app(()=>{attempts++;throw timeoutError()});await page.ready;
+ assert.equal(attempts,2);assert.equal(page.element('#refresh').disabled,false);assert.equal(page.element('#saveAll').disabled,true);
+ assert.match(page.element('#saveStatus').textContent,/서버 응답 시간이 초과/);
+});
+
+test('legacy server cannot load CX data as enterprise or receive enterprise saves',async()=>{
+ const page=app(()=>({ok:true,tasks:[task]}));await page.ready;await page.run("switchWorkspace('enterprise')");await page.run('saveAll()');
+ assert.equal(page.run('serverConnected'),false);assert.equal(page.run('data.length'),0);assert.equal(page.requests.filter(r=>r.payload.action==='save').length,0);
+});
+
+test('initial page and refresh use the active tab',async()=>{
+ const page=app(()=>({ok:true,tasks:[task,[...task.slice(0,3),'완료',...task.slice(4)]]}));await page.ready;
+ assert.equal(page.run('currentTab'),'active');assert.equal(page.run('selected().length'),1);
+ page.run("selectTab('list')");await page.element('#refresh').onclick();assert.equal(page.run('currentTab'),'active');
+});
+
+test('cached preview is visible on failed reload but cannot be saved',async()=>{
+ let fail=false;const page=app(()=>fail?{ok:false,error:'서버 일시 오류'}:{ok:true,tasks:[task]});await page.ready;
+ page.run("cacheValue=JSON.stringify({tasks:[['9/19','123','작업자 A','배정','','캐시 업무','','','']]});localStorage.getItem=key=>key===snapshotKey()?cacheValue:null;data=[]");
+ fail=true;await page.run('load()');assert.equal(page.run('data[0][5]'),'캐시 업무');assert.equal(page.run('serverConnected'),false);assert.equal(page.element('#saveAll').disabled,true);
+ const before=page.requests.length;await page.run('saveAll()');assert.equal(page.requests.length,before);
+ page.run("currentWorkspace='enterprise'");assert.match(page.run('snapshotKey()'),/:enterprise$/);
+});
+
+test('cached list is visible while fresh server data is still pending and saving stays disabled',async()=>{
+ const storage=new Map([['workflow-snapshot-v1:https://example.test/exec:cx',JSON.stringify({tasks:[task]})]]);
+ let resolve;const pending=new Promise(done=>resolve=done);
+ const page=app(()=>pending,storage,'#cx');
+ await nextTurn();
+ assert.match(page.element('#rows').innerHTML,/업무 제목/);assert.equal(page.element('#saveAll').disabled,true);
+ resolve({ok:true,workspace:'cx',tasks:[task]});await page.ready;
+});
+
+test('unauthenticated visitors cannot open home or workspaces',async()=>{
+ const page=app(()=>({ok:true,tasks:[task]}),new Map(),'',true);await page.ready;
+ assert.equal(page.element('#authPage').hidden,false);assert.equal(page.element('#homePage').hidden,true);
+ await page.run("switchWorkspace('enterprise')");assert.equal(page.requests.length,0);assert.equal(page.element('#workspacePage').hidden,true);
+});
+
+test('all reads and saves use authenticated POST',async()=>{
+ const page=app(p=>({ok:true,workspace:p.workspace,tasks:[]}));await page.ready;
+ assert.equal(page.requests[0].method,'POST');assert.equal(page.requests[0].payload.workspace,'cx');
+ assert.equal(new URL(page.requests[0].url).searchParams.has('token'),false);
+ page.run("authToken='secret';currentUser={name:'편집자',role:'editor'}");await page.run('load()');
+ assert.equal(page.requests[1].method,'POST');assert.equal(page.requests[1].payload.token,'secret');
+ await page.run('saveAll()');assert.equal(page.requests[2].method,'POST');
+ await page.run("requestServer({action:'loadAudit'})");assert.equal(page.requests[3].method,'POST');assert.equal(page.requests[3].url.includes('secret'),false);
+});
+
+test('opening login is immediate and login submits without an auth status request',async()=>{
+ const page=app(()=>({ok:true,setupRequired:true}),new Map(),'',true);await page.ready;
+ page.run('openLogin()');assert.equal(page.requests.length,0);assert.equal(page.element('#loginSubmit').disabled,false);
+ page.element('#loginUsername').value='admin';page.element('#loginPassword').value='password1';
+ await page.element('#authForm').onsubmit({preventDefault(){}});
+ assert.equal(page.requests.length,1);assert.equal(page.requests[0].payload.action,'login');
+ assert.equal(page.element('#nameField').hidden,false);assert.equal(page.element('#loginSubmit').textContent,'관리자 생성');
+});
+
+test('home and workspace both expose logout controls',()=>{
+ const html=fs.readFileSync(require('node:path').join(__dirname,'../index.html'),'utf8');
+ assert.equal((html.match(/data-logout/g)||[]).length,2);
+ assert.match(html,/account-actions[\s\S]*data-logout/);
+});
+
+
+test('invalid session returns to login without public fallback',async()=>{
+ const page=app(p=>p.token?{ok:false,error:'로그인이 만료되었습니다.'}:{ok:true,workspace:p.workspace,tasks:[task]});await page.ready;
+ page.run("authToken='expired';currentUser={name:'편집자',role:'editor'}");await page.run('load()');
+ assert.equal(page.run('serverConnected'),false);assert.equal(page.run('authToken'),'');
+ assert.equal(page.element('#saveAll').disabled,true);assert.equal(page.element('#authPage').hidden,false);
+});
+
+
+test('home guide appears only on home, once per Korean calendar day including after reload',async()=>{
+ const storage=new Map();
+ const page=app(()=>({ok:true,tasks:[]}),storage,'',true);await page.ready;
+ page.run("document.querySelector('#authPage').hidden=true;guideCount=0;document.querySelector('#guideDialog').showModal=function(){this.open=true;guideCount++};document.querySelector('#guideDialog').close=function(){this.open=false}");
+ page.run("document.querySelector('#homePage').hidden=true;showHomeGuide(new Date('2026-09-23T01:00:00Z'))");assert.equal(page.run('guideCount'),0);
+ page.run("document.querySelector('#homePage').hidden=false;showHomeGuide(new Date('2026-09-23T01:00:00Z'));closeGuide();showHomeGuide(new Date('2026-09-23T14:59:59Z'))");
+ assert.equal(page.run('guideCount'),1);
+ page.run("guideSeenDay='';showHomeGuide(new Date('2026-09-23T14:59:59Z'))");assert.equal(page.run('guideCount'),1);
+ page.run("showHomeGuide(new Date('2026-09-23T15:00:00Z'))");assert.equal(page.run('guideCount'),2);
+ page.run('openLogin()');assert.equal(page.element('#guideDialog').open,false);page.run("guideSeenDay='';localStorage.removeItem(GUIDE_SEEN_KEY);showHomeGuide(new Date('2026-09-24T01:00:00Z'))");assert.equal(page.run('guideCount'),2);
+});
+
+test('home guide stops at November 1 Korean time and works when browser storage is unavailable',async()=>{
+ const page=app(()=>({ok:true,tasks:[]}),new Map(),'',true);await page.ready;
+ page.run("document.querySelector('#authPage').hidden=true;guideCount=0;document.querySelector('#homePage').hidden=false;document.querySelector('#guideDialog').showModal=function(){this.open=true;guideCount++};document.querySelector('#guideDialog').close=function(){this.open=false};localStorage.getItem=()=>{throw Error('blocked')};localStorage.setItem=()=>{throw Error('blocked')}");
+ page.run("showHomeGuide(new Date('2026-10-31T14:59:59Z'));closeGuide();showHomeGuide(new Date('2026-10-31T14:59:59Z'))");assert.equal(page.run('guideCount'),1);
+ page.run("showHomeGuide(new Date('2026-10-31T15:00:00Z'))");assert.equal(page.run('guideCount'),1);
+});
+
+
+test('login timeout gives a readable message and allows retry without automatic duplicate submission',async()=>{
+ const page=app(()=>{throw timeoutError()},new Map(),'',true);await page.ready;
+ await page.element('#authForm').onsubmit({preventDefault(){}});
+ assert.match(page.element('#authError').textContent,/서버 응답 시간이 초과/);assert.equal(page.element('#loginSubmit').disabled,false);
+ assert.equal(page.requests.length,1);assert.equal(page.run("requestTimeout('login')"),90000);
+});
+
+test('account list timeout is shown inside dialog and duplicate clicks share the active attempt',async()=>{
+ let reject;const pending=new Promise((_resolve,fail)=>reject=fail);
+ const page=app(()=>pending,new Map(),'');await page.ready;page.element('#usersDialog').showModal=()=>{};
+ const first=page.element('#usersButton').onclick();await page.element('#usersButton').onclick();assert.equal(page.requests.length,1);
+ reject(timeoutError());await first;
+ assert.match(page.element('#userError').textContent,/서버 응답 시간이 초과/);assert.equal(page.run('usersLoading'),false);
+ assert.equal(page.run("requestTimeout('listUsers')"),60000);
+});
+
+
+test('password confirmation mismatch does not send a request',async()=>{
+ const page=app(()=>({ok:true,tasks:[]}),new Map(),'');await page.ready;
+ page.run("authToken='session'");page.element('#currentPassword').value='password1';page.element('#nextPassword').value='password2';page.element('#confirmPassword').value='different';
+ await page.element('#passwordForm').onsubmit({preventDefault(){}});
+ assert.equal(page.requests.length,0);assert.match(page.element('#passwordMessage').textContent,/일치하지/);
+});
+
+
+test('restored session shows home before session check finishes without enabling edits',async()=>{
+ let finish;const pending=new Promise(resolve=>finish=resolve);
+ const storage=new Map([['workflow-auth-token','existing']]);
+ const page=app(()=>pending,storage,'',true);await nextTurn();
+ assert.equal(page.element('#homePage').hidden,false);assert.equal(page.element('#authPage').hidden,true);assert.equal(page.run('canEdit()'),false);
+ finish({ok:true,user:{name:'편집자',role:'editor'}});await page.ready;assert.equal(page.run('canEdit()'),true);
+});
+
+test('direct workspace entry validates login in the load request and does not show cached private rows first',async()=>{
+ let finish;const pending=new Promise(resolve=>finish=resolve);
+ const storage=new Map([['workflow-auth-token','existing'],['workflow-snapshot-v1:https://example.test/exec:cx',JSON.stringify({tasks:[task]})]]);
+ const page=app(()=>pending,storage,'#cx',true);await nextTurn();
+ assert.equal(page.requests.length,1);assert.equal(page.requests[0].payload.action,'load');assert.doesNotMatch(page.element('#rows').innerHTML,/업무 제목/);
+ finish({ok:true,workspace:'cx',tasks:[task],user:{name:'편집자',role:'editor'}});await page.ready;
+ assert.equal(page.requests.length,1);assert.match(page.element('#rows').innerHTML,/업무 제목/);assert.equal(page.run('canEdit()'),true);
+});
+
+test('history shows each changed field with escaped before and after values',async()=>{
+ const page=app(()=>({ok:true,tasks:[]}));await page.ready;
+ page.run("historyEntries=[{task:'업무',action:'수정',name:'작성자',at:'2026-09-24T01:00:00Z',field:'비고',before:'<script>',after:'수정 내용'}];renderHistory()");
+ const html=page.element('#historyList').innerHTML;assert.match(html,/변경 전/);assert.match(html,/변경 후/);assert.match(html,/&lt;script&gt;/);assert.match(html,/수정 내용/);
+});
+
+test('edits remain local until the save button is used',async()=>{
+ let saved;const page=app(p=>{if(p.action==='save'){saved=p.tasks;return {ok:true}}return {ok:true,tasks:[task]}});await page.ready;
+ const before=page.requests.length;
+ page.run("currentUser={role:'editor'};remember(0,5,'수동 저장 업무')");
+ await new Promise(resolve=>setTimeout(resolve,850));
+ assert.equal(saved,undefined);assert.equal(page.requests.length,before);
+ assert.match(page.element('#saveStatus').textContent,/저장 버튼/);
+ await page.element('#saveAll').onclick();
+ assert.equal(saved[0][5],'수동 저장 업무');
 });
 test('work summary groups filtered actual hours by worker',async()=>{
  const first=[...task];first[2]='작업자 A';first[7]='1.234';
@@ -95,21 +265,89 @@ test('work summary groups filtered actual hours by worker',async()=>{
  assert.doesNotMatch(page.element('#workSummary').innerHTML,/작업자 A/);
  assert.match(page.element('#workSummary').innerHTML,/작업자 B/);
 });
-test('tab selection refreshes the rendered rows immediately',async()=>{
- const completed=[...task];completed[3]='완료';completed[5]='완료 업무';
- const page=app(()=>({ok:true,tasks:[task,completed]}));await page.ready;
- assert.doesNotMatch(page.element('#rows').innerHTML,/완료 업무/);
- page.run("selectTab('list')");
- assert.match(page.element('#rows').innerHTML,/완료 업무/);
- page.run("selectTab('active')");
- assert.doesNotMatch(page.element('#rows').innerHTML,/완료 업무/);
-});
 test('save commits focused edit and storage cleanup failure does not report remote save failure',async()=>{
  let saved;const page=app(p=>{if(p.action==='save'){saved=p.tasks;return {ok:true}}return {ok:true,tasks:[task]}});await page.ready;
  page.run("document.activeElement={blur(){remember(0,5,'입력 중인 제목')}};localStorage.removeItem=()=>{throw new Error('storage blocked')}");
  await page.run('saveAll()');assert.equal(saved[0][5],'입력 중인 제목');assert.match(page.element('#saveStatus').textContent,/저장 완료/);
 });
 
+test('new registration dates save as M/D and remain so on later saves',async()=>{
+ let saved;const page=app(p=>{if(p.action==='save'){saved=p.tasks;return {ok:true}}return {ok:true,tasks:[]}});await page.ready;
+ page.run("addRow();remember(0,0,'2026-09-19');remember(0,2,'작업자 A');remember(0,5,'새 업무')");
+ assert.doesNotMatch(page.element('#rows').innerHTML,/data-save|서버에 저장/);
+ await page.run('saveAll()');assert.equal(saved[0][0],'9/19');await page.run('saveAll()');assert.equal(saved[0][0],'9/19');
+});
+
+test('deletion persists immediately after confirmation',async()=>{
+ let tasks=[task];const page=app(p=>{if(p.action==='save'){tasks=p.tasks;return {ok:true}}return {ok:true,tasks}});await page.ready;
+ page.run("document.querySelectorAll=s=>s==='.row-check:checked'?[{dataset:{check:'0'}}]:[];deleteMode=true");
+ const before=page.requests.length;await page.run('deleteSelected()');
+ assert.equal(page.run('data.length'),0);assert.equal(page.requests.length,before+1);assert.equal(tasks.length,0);
+ assert.match(page.element('#saveStatus').textContent,/삭제 및 서버 저장 완료/);
+ await page.element('#saveAll').onclick();assert.equal(tasks.length,0);
+});
+
+test('old GET deployment gives actionable update instructions and keeps saving disabled',async()=>{
+ const page=app(()=>({ok:false,error:'POST 로그인 요청을 사용해 주세요.'}));await page.ready;
+ assert.match(page.element('#saveStatus').textContent,/Code.gs.*새 버전/);
+ assert.equal(page.element('#saveAll').disabled,true);assert.equal(page.requests.length,1);
+});
+
+
+test('CSV exports visible table values including controls, quotes, newlines and deletion-mode dates',async()=>{
+ const page=app(()=>({ok:true,tasks:[task]}));await page.ready;
+ page.run(`csvCell=(text,input=null,checkbox=false)=>({innerText:text,querySelector:s=>s==='input[type="checkbox"]'?(checkbox?{}:null):input});
+ document.querySelector=((original)=>selector=>selector==='#list table'?{querySelectorAll:()=>[
+ {cells:[csvCell('등록'),csvCell('RMS'),csvCell('작업자'),csvCell('비고')]},
+ {dataset:{index:'0'},cells:[csvCell('',null,true),csvCell('↗',{value:'00123'}),csvCell('전체 옵션',{value:'작업자 A'}),csvCell('쉼표, 따옴표 "내용"\\n다음 줄')]}
+ ]}:original(selector))(document.querySelector);`);
+ const csv=page.run('tableCsv()');
+ assert.ok(csv.startsWith('\uFEFF'));assert.match(csv,/"9\/19","00123","작업자 A"/);
+ assert.ok(csv.includes('"쉼표, 따옴표 ""내용""\n다음 줄"'));assert.ok(!csv.includes('↗'));
+});
+test('completion date sort toggles ascending and descending with blanks last',async()=>{
+ const early=[...task];early[4]='2026-09-02';early[5]='이른 업무';
+ const late=[...task];late[4]='2026-09-28';late[5]='늦은 업무';
+ const blank=[...task];blank[4]='';blank[5]='날짜 없음';
+ const page=app(()=>({ok:true,tasks:[late,blank,early]}));await page.ready;
+ page.run("completionSort='asc'");
+ assert.equal(page.run("selected().map(x=>x.r[5]).join(',')"),'이른 업무,늦은 업무,날짜 없음');
+ page.run('toggleCompletionSort()');
+ assert.equal(page.run("selected().map(x=>x.r[5]).join(',')"),'늦은 업무,이른 업무,날짜 없음');
+});
+
+test('enterprise STG date persists separately and adjustment is only visible in CX',async()=>{
+ const stores={cx:[task],enterprise:[task],aldot:[task]};
+ const page=app(p=>{if(p.action==='save')stores[p.workspace]=p.tasks;return {ok:true,workspace:p.workspace,tasks:stores[p.workspace]}});await page.ready;
+ assert.match(page.element('#rows').innerHTML,/aria-label="조정"/);
+ await page.run("switchWorkspace('enterprise')");
+ assert.match(page.element('#rows').innerHTML,/aria-label="STG 반영일"/);
+ assert.doesNotMatch(page.element('#rows').innerHTML,/aria-label="조정"/);
+ page.run("remember(0,11,'2026-09-25')");await page.run('saveAll()');await page.run('load()');
+ assert.equal(stores.enterprise[0].length,12);assert.equal(page.run('data[0][11]'),'2026-09-25');assert.equal(page.run('data[0][4]'),'2026-09-20');
+ await page.run("switchWorkspace('aldot')");assert.doesNotMatch(page.element('#rows').innerHTML,/STG 반영일|aria-label="조정"/);
+});
+
+
+test('select all toggles rendered deletion rows and reflects partial and empty selection',async()=>{
+ const page=app(()=>({ok:true,tasks:[task]}));await page.ready;
+ page.run("selectedMonth=new Date(new Date().getFullYear()+1,0,1);data[0][7]=MONTH_META+JSON.stringify({id:'carry-test',month:monthKey(selectedMonth)});deleteMode=true;checks=[{checked:false},{checked:false}];document.querySelectorAll=s=>s==='.row-check'?checks:s==='.row-check:checked'?checks.filter(x=>x.checked):[];updateDeleteButton()");
+ assert.equal(page.element('#selectAllRows').hidden,false);
+ page.element('#selectAllRows').checked=true;page.element('#selectAllRows').onchange();
+ assert.equal(page.run('checks.every(x=>x.checked)'),true);assert.match(page.element('#deleteToggle').textContent,/2/);
+ page.run('checks[0].checked=false;updateDeleteButton()');assert.equal(page.element('#selectAllRows').indeterminate,true);
+ page.element('#selectAllRows').checked=false;page.element('#selectAllRows').onchange();assert.equal(page.run('checks.some(x=>x.checked)'),false);
+ page.run('checks=[];updateDeleteButton()');assert.equal(page.element('#selectAllRows').disabled,true);
+ page.run('deleteMode=false;updateDeleteButton()');assert.equal(page.element('#selectAllRows').hidden,true);
+});
+
+test('active tab excludes completed, held and carried-over tasks',async()=>{
+ const tasks=['배정','진행중','내부검수','검수요청','반영대기','완료','보류','취소'].map(stage=>{const row=[...task];row[3]=stage;return row});
+ const page=app(()=>({ok:true,tasks}));await page.ready;
+ page.run("currentTab='active'");assert.equal(page.run('selected().length'),5);
+ page.element('#worker').value='다른 작업자';assert.equal(page.run('selected().length'),0);
+ page.element('#worker').value='all';page.run("currentTab='list'");assert.equal(page.run('selected().length'),8);
+});
 test('month navigation crosses years and save retains tasks from other months',async()=>{
  let saved;const rows=['2026-12-15','2027-01-03'].map(date=>[date,...task.slice(1,3),'완료',...task.slice(4)]);
  const page=app(p=>{if(p.action==='save'){saved=p.tasks;return {ok:true}}return {ok:true,tasks:rows}});await page.ready;
@@ -133,33 +371,6 @@ test('multiple drafts display first but are appended on save, with failures reta
  assert.equal(page.run('selected()[0].r[5]'),'초안 B');
  await page.run('saveAll()');assert.equal(page.run('newRows.size'),2);assert.equal(page.run('selected()[0].r[5]'),'초안 B');
  fail=false;await page.run('saveAll()');assert.deepEqual(saved.map(r=>r[5]),['업무 제목','초안 A','초안 B']);assert.equal(page.run('selected()[0].r[5]'),'업무 제목');
-});
-
-test('new registration dates save as M/D and remain so on later saves',async()=>{
- let saved;const page=app(p=>{if(p.action==='save'){saved=p.tasks;return {ok:true}}return {ok:true,tasks:[]}});await page.ready;
- page.run("addRow();remember(0,0,'2026-09-19');remember(0,2,'작업자 A');remember(0,5,'새 업무')");
- assert.doesNotMatch(page.element('#rows').innerHTML,/data-save|서버에 저장/);
- await page.run('saveAll()');assert.equal(saved[0][0],'9/19');await page.run('saveAll()');assert.equal(saved[0][0],'9/19');
-});
-
-test('refresh button fetches changed server rows and clears stale search',async()=>{
- let tasks=[task];const page=app(()=>({ok:true,tasks}));await page.ready;
- tasks=[[...task.slice(0,5),'서버에서 바뀐 제목',...task.slice(6)]];
- page.element('#search').value='이전 검색어';await page.element('#refresh').onclick();
- assert.equal(page.requests.length,2);assert.equal(page.run('data[0][5]'),'서버에서 바뀐 제목');
- assert.equal(page.element('#search').value,'');assert.match(page.element('#saveStatus').textContent,/새로고침 완료/);
- assert.equal(page.element('#refresh').disabled,false);
-});
-
-
-
-test('deletion persists immediately after confirmation',async()=>{
- let tasks=[task];const page=app(p=>{if(p.action==='save'){tasks=p.tasks;return {ok:true}}return {ok:true,tasks}});await page.ready;
- page.run("document.querySelectorAll=s=>s==='.row-check:checked'?[{dataset:{check:'0'}}]:[];deleteMode=true");
- const before=page.requests.length;await page.run('deleteSelected()');
- assert.equal(page.run('data.length'),0);assert.equal(page.requests.length,before+1);assert.equal(tasks.length,0);
- assert.match(page.element('#saveStatus').textContent,/삭제 및 서버 저장 완료/);
- await page.element('#saveAll').onclick();assert.equal(tasks.length,0);
 });
 
 test('legacy statuses migrate and monthly copies persist without duplicating after edits',async()=>{
@@ -194,24 +405,6 @@ test('month navigation cannot go before September 2026 and never creates copies'
  await page.run('changeMonth(-1);carryOver()');assert.equal(await page.run('data.length'),2);
 });
 
-test('notes allow Enter and preserve rendered line breaks through save and reload',async()=>{
- let tasks=[task];const page=app(p=>{if(p.action==='save'){tasks=p.tasks;return {ok:true}}return {ok:true,tasks}});await page.ready;
- page.run("note={dataset:{row:'0',col:'6'},innerText:'첫 줄\\n둘째 줄',textContent:'첫 줄둘째 줄',blur(){throw Error('unexpected blur')}};document.querySelectorAll=s=>s==='#rows [contenteditable]'?[note]:[];bind()");
- page.run("note.onkeydown({key:'Enter',preventDefault(){throw Error('Enter blocked')}});note.oninput()");
- await page.run('saveAll()');await page.run('load()');
- assert.equal(page.run('data[0][6]'),'첫 줄\n둘째 줄');
-});
-
-test('initial load timeout retries once and unlocks saving after successful load',async()=>{
- let attempts=0;const page=app(()=>{if(++attempts===1)throw Object.assign(new Error('signal timed out'),{name:'TimeoutError'});return {ok:true,tasks:[task]}});await page.ready;
- assert.equal(attempts,2);assert.equal(page.run('serverConnected'),true);assert.equal(page.element('#saveAll').disabled,false);
-});
-test('repeated load timeouts stop retrying and leave refresh available',async()=>{
- let attempts=0;const page=app(()=>{attempts++;throw Object.assign(new Error('signal timed out'),{name:'TimeoutError'})});await page.ready;
- assert.equal(attempts,2);assert.equal(page.element('#refresh').disabled,false);assert.equal(page.element('#saveAll').disabled,true);
- assert.match(page.element('#saveStatus').textContent,/서버 응답 시간이 초과/);
-});
-
 test('workspaces preserve drafts and save to their own server namespace',async()=>{
  const stores={cx:[task],enterprise:[],aldot:[]};
  const page=app(p=>{if(p.action==='save')stores[p.workspace]=p.tasks;return {ok:true,workspace:p.workspace,tasks:stores[p.workspace]}});await page.ready;
@@ -220,25 +413,6 @@ test('workspaces preserve drafts and save to their own server namespace',async()
  await page.run("switchWorkspace('aldot')");assert.equal(page.run('data.length'),0);
  await page.run("switchWorkspace('cx')");assert.equal(page.run('data[0][5]'),'CX 초안');assert.equal(stores.cx[0][5],'업무 제목');assert.equal(stores.enterprise[0][5],'기업 업무');
 });
-test('legacy server cannot load CX data as enterprise or receive enterprise saves',async()=>{
- const page=app(()=>({ok:true,tasks:[task]}));await page.ready;await page.run("switchWorkspace('enterprise')");await page.run('saveAll()');
- assert.equal(page.run('serverConnected'),false);assert.equal(page.run('data.length'),0);assert.equal(page.requests.filter(r=>r.payload.action==='save').length,0);
-});
-
-test('initial page and refresh use the active tab',async()=>{
- const page=app(()=>({ok:true,tasks:[task,[...task.slice(0,3),'완료',...task.slice(4)]]}));await page.ready;
- assert.equal(page.run('currentTab'),'active');assert.equal(page.run('selected().length'),1);
- page.run("selectTab('list')");await page.element('#refresh').onclick();assert.equal(page.run('currentTab'),'active');
-});
-
-test('cached preview is visible on failed reload but cannot be saved',async()=>{
- let fail=false;const page=app(()=>fail?{ok:false,error:'서버 일시 오류'}:{ok:true,tasks:[task]});await page.ready;
- page.run("cacheValue=JSON.stringify({tasks:[['9/19','123','작업자 A','배정','','캐시 업무','','','']]});localStorage.getItem=key=>key===snapshotKey()?cacheValue:null;data=[]");
- fail=true;await page.run('load()');assert.equal(page.run('data[0][5]'),'캐시 업무');assert.equal(page.run('serverConnected'),false);assert.equal(page.element('#saveAll').disabled,true);
- const before=page.requests.length;await page.run('saveAll()');assert.equal(page.requests.length,before);
- page.run("currentWorkspace='enterprise'");assert.match(page.run('snapshotKey()'),/:enterprise$/);
-});
-
 test('workspace and matching title survive page reloads',async()=>{
  const storage=new Map();const handler=p=>({ok:true,workspace:p.workspace,tasks:[]});
  const first=app(handler,storage);await first.ready;assert.equal(first.element('header h1').textContent,'CX 업무 관리');
@@ -263,94 +437,10 @@ test('unknown workspace route opens home without loading data',async()=>{
 });
 
 
-test('unauthenticated visitors cannot open home or workspaces',async()=>{
- const page=app(()=>({ok:true,tasks:[task]}),new Map(),'',true);await page.ready;
- assert.equal(page.element('#authPage').hidden,false);assert.equal(page.element('#homePage').hidden,true);
- await page.run("switchWorkspace('enterprise')");assert.equal(page.requests.length,0);assert.equal(page.element('#workspacePage').hidden,true);
-});
-
-test('all reads and saves use authenticated POST',async()=>{
- const page=app(p=>({ok:true,workspace:p.workspace,tasks:[]}));await page.ready;
- assert.equal(page.requests[0].method,'POST');assert.equal(page.requests[0].payload.workspace,'cx');
- assert.equal(new URL(page.requests[0].url).searchParams.has('token'),false);
- page.run("authToken='secret';currentUser={name:'편집자',role:'editor'}");await page.run('load()');
- assert.equal(page.requests[1].method,'POST');assert.equal(page.requests[1].payload.token,'secret');
- await page.run('saveAll()');assert.equal(page.requests[2].method,'POST');
- await page.run("requestServer({action:'loadAudit'})");assert.equal(page.requests[3].method,'POST');assert.equal(page.requests[3].url.includes('secret'),false);
-});
-
-test('old GET deployment gives actionable update instructions and keeps saving disabled',async()=>{
- const page=app(()=>({ok:false,error:'POST 로그인 요청을 사용해 주세요.'}));await page.ready;
- assert.match(page.element('#saveStatus').textContent,/Code.gs.*새 버전/);
- assert.equal(page.element('#saveAll').disabled,true);assert.equal(page.requests.length,1);
-});
-
-
-test('opening login is immediate and login submits without an auth status request',async()=>{
- const page=app(()=>({ok:true,setupRequired:true}),new Map(),'',true);await page.ready;
- page.run('openLogin()');assert.equal(page.requests.length,0);assert.equal(page.element('#loginSubmit').disabled,false);
- page.element('#loginUsername').value='admin';page.element('#loginPassword').value='password1';
- await page.element('#authForm').onsubmit({preventDefault(){}});
- assert.equal(page.requests.length,1);assert.equal(page.requests[0].payload.action,'login');
- assert.equal(page.element('#nameField').hidden,false);assert.equal(page.element('#loginSubmit').textContent,'관리자 생성');
-});
-
-test('cached list is visible while fresh server data is still pending and saving stays disabled',async()=>{
- const storage=new Map([['workflow-snapshot-v1:https://example.test/exec:cx',JSON.stringify({tasks:[task]})]]);
- let resolve;const pending=new Promise(done=>resolve=done);
- const page=app(()=>pending,storage,'#cx');
- await new Promise(done=>setImmediate(done));
- assert.match(page.element('#rows').innerHTML,/업무 제목/);assert.equal(page.element('#saveAll').disabled,true);
- resolve({ok:true,workspace:'cx',tasks:[task]});await page.ready;
-});
-
-
-test('CSV exports visible table values including controls, quotes, newlines and deletion-mode dates',async()=>{
- const page=app(()=>({ok:true,tasks:[task]}));await page.ready;
- page.run(`csvCell=(text,input=null,checkbox=false)=>({innerText:text,querySelector:s=>s==='input[type="checkbox"]'?(checkbox?{}:null):input});
- document.querySelector=((original)=>selector=>selector==='#list table'?{querySelectorAll:()=>[
- {cells:[csvCell('등록'),csvCell('RMS'),csvCell('작업자'),csvCell('비고')]},
- {dataset:{index:'0'},cells:[csvCell('',null,true),csvCell('↗',{value:'00123'}),csvCell('전체 옵션',{value:'작업자 A'}),csvCell('쉼표, 따옴표 "내용"\\n다음 줄')]}
- ]}:original(selector))(document.querySelector);`);
- const csv=page.run('tableCsv()');
- assert.ok(csv.startsWith('\uFEFF'));assert.match(csv,/"9\/19","00123","작업자 A"/);
- assert.ok(csv.includes('"쉼표, 따옴표 ""내용""\n다음 줄"'));assert.ok(!csv.includes('↗'));
-});
-test('completion date sort toggles ascending and descending with blanks last',async()=>{
- const early=[...task];early[4]='2026-09-02';early[5]='이른 업무';
- const late=[...task];late[4]='2026-09-28';late[5]='늦은 업무';
- const blank=[...task];blank[4]='';blank[5]='날짜 없음';
- const page=app(()=>({ok:true,tasks:[late,blank,early]}));await page.ready;
- page.run("completionSort='asc'");
- assert.equal(page.run("selected().map(x=>x.r[5]).join(',')"),'이른 업무,늦은 업무,날짜 없음');
- page.run('toggleCompletionSort()');
- assert.equal(page.run("selected().map(x=>x.r[5]).join(',')"),'늦은 업무,이른 업무,날짜 없음');
-});
-
-test('home and workspace both expose logout controls',()=>{
- const html=fs.readFileSync(require('node:path').join(__dirname,'../index.html'),'utf8');
- assert.equal((html.match(/data-logout/g)||[]).length,2);
- assert.match(html,/account-actions[\s\S]*data-logout/);
-});
-
-
-test('enterprise STG date persists separately and adjustment is only visible in CX',async()=>{
- const stores={cx:[task],enterprise:[task],aldot:[task]};
- const page=app(p=>{if(p.action==='save')stores[p.workspace]=p.tasks;return {ok:true,workspace:p.workspace,tasks:stores[p.workspace]}});await page.ready;
- assert.match(page.element('#rows').innerHTML,/aria-label="조정"/);
- await page.run("switchWorkspace('enterprise')");
- assert.match(page.element('#rows').innerHTML,/aria-label="STG 반영일"/);
- assert.doesNotMatch(page.element('#rows').innerHTML,/aria-label="조정"/);
- page.run("remember(0,11,'2026-09-25')");await page.run('saveAll()');await page.run('load()');
- assert.equal(stores.enterprise[0].length,12);assert.equal(page.run('data[0][11]'),'2026-09-25');assert.equal(page.run('data[0][4]'),'2026-09-20');
- await page.run("switchWorkspace('aldot')");assert.doesNotMatch(page.element('#rows').innerHTML,/STG 반영일|aria-label="조정"/);
-});
-
-
 test('slow workspace response does not block navigation or overwrite the active workspace',async()=>{
  let finishCx;const pending=new Promise(resolve=>finishCx=resolve);
  const page=app(p=>p.workspace==='cx'?pending:{ok:true,workspace:p.workspace,tasks:[]});
- await new Promise(resolve=>setImmediate(resolve));
+ await nextTurn();
  await page.run("switchWorkspace('enterprise')");
  assert.equal(page.run('currentWorkspace'),'enterprise');assert.equal(page.run('serverConnected'),true);
  finishCx({ok:true,workspace:'cx',tasks:[task]});await page.ready;
@@ -360,7 +450,7 @@ test('slow workspace response does not block navigation or overwrite the active 
 
 test('returning to a loading workspace reuses its pending request',async()=>{
  let finish;const pending=new Promise(resolve=>finish=resolve);
- const page=app(()=>pending);await new Promise(resolve=>setImmediate(resolve));
+ const page=app(()=>pending);await nextTurn();
  page.run('showHome()');assert.equal(page.element('#homePage').hidden,false);
  const back=page.run("switchWorkspace('cx')");assert.equal(page.requests.length,1);
  finish({ok:true,workspace:'cx',tasks:[task]});await Promise.all([page.ready,back]);
@@ -370,54 +460,9 @@ test('returning to a loading workspace reuses its pending request',async()=>{
 test('failed request from a previous workspace cannot disconnect the current one',async()=>{
  let fail;const pending=new Promise((_resolve,reject)=>fail=reject);
  const page=app(p=>p.workspace==='cx'?pending:{ok:true,workspace:p.workspace,tasks:[]});
- await new Promise(resolve=>setImmediate(resolve));await page.run("switchWorkspace('aldot')");
+ await nextTurn();await page.run("switchWorkspace('aldot')");
  fail(new TypeError('offline'));await page.ready;
  assert.equal(page.run('serverConnected'),true);assert.equal(page.requests.length,2);
-});
-
-
-test('invalid session returns to login without public fallback',async()=>{
- const page=app(p=>p.token?{ok:false,error:'로그인이 만료되었습니다.'}:{ok:true,workspace:p.workspace,tasks:[task]});await page.ready;
- page.run("authToken='expired';currentUser={name:'편집자',role:'editor'}");await page.run('load()');
- assert.equal(page.run('serverConnected'),false);assert.equal(page.run('authToken'),'');
- assert.equal(page.element('#saveAll').disabled,true);assert.equal(page.element('#authPage').hidden,false);
-});
-
-
-test('home guide appears only on home, once per Korean calendar day including after reload',async()=>{
- const storage=new Map();
- const page=app(()=>({ok:true,tasks:[]}),storage,'',true);await page.ready;
- page.run("document.querySelector('#authPage').hidden=true;guideCount=0;document.querySelector('#guideDialog').showModal=function(){this.open=true;guideCount++};document.querySelector('#guideDialog').close=function(){this.open=false}");
- page.run("document.querySelector('#homePage').hidden=true;showHomeGuide(new Date('2026-09-23T01:00:00Z'))");assert.equal(page.run('guideCount'),0);
- page.run("document.querySelector('#homePage').hidden=false;showHomeGuide(new Date('2026-09-23T01:00:00Z'));closeGuide();showHomeGuide(new Date('2026-09-23T14:59:59Z'))");
- assert.equal(page.run('guideCount'),1);
- page.run("guideSeenDay='';showHomeGuide(new Date('2026-09-23T14:59:59Z'))");assert.equal(page.run('guideCount'),1);
- page.run("showHomeGuide(new Date('2026-09-23T15:00:00Z'))");assert.equal(page.run('guideCount'),2);
- page.run('openLogin()');assert.equal(page.element('#guideDialog').open,false);page.run("guideSeenDay='';localStorage.removeItem(GUIDE_SEEN_KEY);showHomeGuide(new Date('2026-09-24T01:00:00Z'))");assert.equal(page.run('guideCount'),2);
-});
-
-test('home guide stops at November 1 Korean time and works when browser storage is unavailable',async()=>{
- const page=app(()=>({ok:true,tasks:[]}),new Map(),'',true);await page.ready;
- page.run("document.querySelector('#authPage').hidden=true;guideCount=0;document.querySelector('#homePage').hidden=false;document.querySelector('#guideDialog').showModal=function(){this.open=true;guideCount++};document.querySelector('#guideDialog').close=function(){this.open=false};localStorage.getItem=()=>{throw Error('blocked')};localStorage.setItem=()=>{throw Error('blocked')}");
- page.run("showHomeGuide(new Date('2026-10-31T14:59:59Z'));closeGuide();showHomeGuide(new Date('2026-10-31T14:59:59Z'))");assert.equal(page.run('guideCount'),1);
- page.run("showHomeGuide(new Date('2026-10-31T15:00:00Z'))");assert.equal(page.run('guideCount'),1);
-});
-
-
-test('login timeout gives a readable message and allows retry without automatic duplicate submission',async()=>{
- const page=app(()=>{throw Object.assign(new Error('signal timed out'),{name:'TimeoutError'})},new Map(),'',true);await page.ready;
- await page.element('#authForm').onsubmit({preventDefault(){}});
- assert.match(page.element('#authError').textContent,/서버 응답 시간이 초과/);assert.equal(page.element('#loginSubmit').disabled,false);
- assert.equal(page.requests.length,1);assert.equal(page.run("requestTimeout('login')"),90000);
-});
-
-test('account list timeout is shown inside dialog and duplicate clicks share the active attempt',async()=>{
- let reject;const pending=new Promise((_resolve,fail)=>reject=fail);
- const page=app(()=>pending,new Map(),'');await page.ready;page.element('#usersDialog').showModal=()=>{};
- const first=page.element('#usersButton').onclick();await page.element('#usersButton').onclick();assert.equal(page.requests.length,1);
- reject(Object.assign(new Error('signal timed out'),{name:'TimeoutError'}));await first;
- assert.match(page.element('#userError').textContent,/서버 응답 시간이 초과/);assert.equal(page.run('usersLoading'),false);
- assert.equal(page.run("requestTimeout('listUsers')"),60000);
 });
 
 
@@ -450,19 +495,6 @@ test('repeated carry overwrites one linked task and removes linked duplicates wi
 });
 
 
-test('select all toggles rendered deletion rows and reflects partial and empty selection',async()=>{
- const page=app(()=>({ok:true,tasks:[task]}));await page.ready;
- page.run("selectedMonth=new Date(new Date().getFullYear()+1,0,1);data[0][7]=MONTH_META+JSON.stringify({id:'carry-test',month:monthKey(selectedMonth)});deleteMode=true;checks=[{checked:false},{checked:false}];document.querySelectorAll=s=>s==='.row-check'?checks:s==='.row-check:checked'?checks.filter(x=>x.checked):[];updateDeleteButton()");
- assert.equal(page.element('#selectAllRows').hidden,false);
- page.element('#selectAllRows').checked=true;page.element('#selectAllRows').onchange();
- assert.equal(page.run('checks.every(x=>x.checked)'),true);assert.match(page.element('#deleteToggle').textContent,/2/);
- page.run('checks[0].checked=false;updateDeleteButton()');assert.equal(page.element('#selectAllRows').indeterminate,true);
- page.element('#selectAllRows').checked=false;page.element('#selectAllRows').onchange();assert.equal(page.run('checks.some(x=>x.checked)'),false);
- page.run('checks=[];updateDeleteButton()');assert.equal(page.element('#selectAllRows').disabled,true);
- page.run('deleteMode=false;updateDeleteButton()');assert.equal(page.element('#selectAllRows').hidden,true);
-});
-
-
 test('bulk selection is hidden in the current month and future months without carried tasks',async()=>{
  const page=app(()=>({ok:true,tasks:[task]}));await page.ready;
  page.run('deleteMode=true;selectedMonth=new Date();updateDeleteButton()');assert.equal(page.element('#selectAllRows').hidden,true);
@@ -472,11 +504,6 @@ test('bulk selection is hidden in the current month and future months without ca
 });
 
 
-test('history shows each changed field with escaped before and after values',async()=>{
- const page=app(()=>({ok:true,tasks:[]}));await page.ready;
- page.run("historyEntries=[{task:'업무',action:'수정',name:'작성자',at:'2026-09-24T01:00:00Z',field:'비고',before:'<script>',after:'수정 내용'}];renderHistory()");
- const html=page.element('#historyList').innerHTML;assert.match(html,/변경 전/);assert.match(html,/변경 후/);assert.match(html,/&lt;script&gt;/);assert.match(html,/수정 내용/);
-});
 test('saving after carry over backs up the original enterprise month',async()=>{
  let backup;
  const enterprise=[...task.slice(0,7),'','',...task.slice(7),'2026-09-24'];enterprise[5]='기업 업무';
@@ -508,30 +535,4 @@ test('ledger failure retains carry save context for retry',async()=>{
  await page.run('selectedMonth=new Date(2026,8,1);carryOver()');await page.run('saveAll()');
  assert.equal(page.run("pendingLedgerMonths.get('cx')"),'2026-09');assert.equal(page.requests.filter(r=>r.payload.action==='save').length,0);
  fail=false;await page.run('saveAll()');assert.equal(page.run('pendingLedgerMonths.size'),0);
-});
-
-
-test('password confirmation mismatch does not send a request',async()=>{
- const page=app(()=>({ok:true,tasks:[]}),new Map(),'');await page.ready;
- page.run("authToken='session'");page.element('#currentPassword').value='password1';page.element('#nextPassword').value='password2';page.element('#confirmPassword').value='different';
- await page.element('#passwordForm').onsubmit({preventDefault(){}});
- assert.equal(page.requests.length,0);assert.match(page.element('#passwordMessage').textContent,/일치하지/);
-});
-
-
-test('restored session shows home before session check finishes without enabling edits',async()=>{
- let finish;const pending=new Promise(resolve=>finish=resolve);
- const storage=new Map([['workflow-auth-token','existing']]);
- const page=app(()=>pending,storage,'',true);await new Promise(resolve=>setImmediate(resolve));
- assert.equal(page.element('#homePage').hidden,false);assert.equal(page.element('#authPage').hidden,true);assert.equal(page.run('canEdit()'),false);
- finish({ok:true,user:{name:'편집자',role:'editor'}});await page.ready;assert.equal(page.run('canEdit()'),true);
-});
-
-test('direct workspace entry validates login in the load request and does not show cached private rows first',async()=>{
- let finish;const pending=new Promise(resolve=>finish=resolve);
- const storage=new Map([['workflow-auth-token','existing'],['workflow-snapshot-v1:https://example.test/exec:cx',JSON.stringify({tasks:[task]})]]);
- const page=app(()=>pending,storage,'#cx',true);await new Promise(resolve=>setImmediate(resolve));
- assert.equal(page.requests.length,1);assert.equal(page.requests[0].payload.action,'load');assert.doesNotMatch(page.element('#rows').innerHTML,/업무 제목/);
- finish({ok:true,workspace:'cx',tasks:[task],user:{name:'편집자',role:'editor'}});await page.ready;
- assert.equal(page.requests.length,1);assert.match(page.element('#rows').innerHTML,/업무 제목/);assert.equal(page.run('canEdit()'),true);
 });

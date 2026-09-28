@@ -6,16 +6,16 @@ const pendingLedgerMonths=new Map();
 function storageKey(key){return currentWorkspace==='cx'?key:currentWorkspace+':'+key}
 const statusClasses={"배정":"status-assigned","진행중":"status-in-progress","내부검수":"status-internal-review","검수요청":"status-review-requested","반영대기":"status-pending-release","완료":"status-completed","취소":"status-cancelled","보류":"status-on-hold"};
 const statusClass=value=>Object.hasOwn(statusClasses,value)?statusClasses[value]:'';
-const ID='1QEgjN6IXs473j1oNuTt-5WM39CcihQNHfUN7Piyp6WI',statuses=['배정','진행중','내부검수','검수요청','반영대기','완료','취소','보류'],KEY='cx-workflow-edits-v5';
+const statuses=['배정','진행중','내부검수','검수요청','반영대기','완료','취소','보류'],KEY='cx-workflow-edits-v5';
 let workers=[];
 function visibleWorkers(){return workers}
-let editPrefix='',serverConnected=false;
+let serverConnected=false;
 let authToken='',currentUser=null,setupRequired=false,restoringAuth=false;
 const canEdit=()=>currentUser&&['admin','editor'].includes(currentUser.role);
-let saving=false,suppressAutoSave=false;
+let saving=false;
 const calendarToday=new Date();
 let selectedMonth=new Date(calendarToday.getFullYear(),calendarToday.getMonth(),1);
-let currentView='list',currentTab='active',completionSort='';
+let currentTab='active',completionSort='';
 let data=[],newRows=new Set(),deleteMode=false,edits={};const $=s=>document.querySelector(s),$$=s=>[...document.querySelectorAll(s)],esc=v=>String(v??'').replace(/[&<>\"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','\"':'&quot;'}[c]));
 const nowText=()=>{let d=new Date(),p=n=>String(n).padStart(2,'0');return `${p(d.getFullYear()%100)}.${p(d.getMonth()+1)}.${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`};
 function normalize(row){
@@ -45,7 +45,6 @@ function requestError(error){
  if(['TimeoutError','AbortError'].includes(error.name)||/signal timed out/i.test(error.message))return new Error('서버 응답 시간이 초과되었습니다. 잠시 후 다시 시도해 주세요. 계정 생성 중이었다면 계정 목록을 먼저 확인해 주세요.');
  return error;
 }
-async function trackedFetch(url,options){updateLoadingBar(1);try{return await fetch(url,options)}finally{updateLoadingBar(-1)}}
 let loading=false,loadVersion=0;
 const pendingLoads=new Map();
 function leavePendingLoad(){loadVersion++;loading=false;lockControls(false);}
@@ -55,21 +54,33 @@ function requestServer(payload){
  if(!pendingLoads.has(key)){const promise=sendRequest(payload).finally(()=>pendingLoads.delete(key));pendingLoads.set(key,promise);}
  return pendingLoads.get(key);
 }
-async function sendRequest(payload){
-  const workspace=currentWorkspace;
-  if(!window.APPS_SCRIPT_URL)throw new Error('config.js에 Apps Script 웹 앱 URL을 설정해 주세요.');
-  const publicRead=false;
-  const url=new URL(window.APPS_SCRIPT_URL);
-  const response=await trackedFetch(url.toString(),{method:'POST',cache:'no-store',...({headers:{'Content-Type':'text/plain;charset=utf-8'},body:JSON.stringify({...payload,workspace:workspace,token:authToken})}),signal:AbortSignal.timeout(requestTimeout(payload.action))});
+// Shared transport for both login and authenticated API requests.
+async function postJson(payload){
+ if(!window.APPS_SCRIPT_URL)throw new Error('config.js에 Apps Script 웹 앱 URL을 설정해 주세요.');
+ updateLoadingBar(1);
+ try{
+  const response=await fetch(window.APPS_SCRIPT_URL,{
+   method:'POST',cache:'no-store',headers:{'Content-Type':'text/plain;charset=utf-8'},
+   body:JSON.stringify(payload),signal:AbortSignal.timeout(requestTimeout(payload.action))
+  });
   if(!response.ok)throw new Error('서버 응답 오류 (HTTP '+response.status+')');
   let result;
-  try{result=await response.json()}catch(error){if(['TimeoutError','AbortError'].includes(error.name))throw error;throw new Error('서버가 JSON을 반환하지 않습니다. 웹 앱 배포와 접근 권한을 확인해 주세요.')}
-  if(!result?.ok){
-    if(result?.error==='POST 로그인 요청을 사용해 주세요.')throw new Error('서버에 이전 조회 코드가 배포되어 있습니다. Code.gs를 반영하고 배포 관리에서 새 버전으로 배포한 뒤 config.js의 /exec URL을 확인해 주세요.');
-    throw new Error(result?.error||result?.message||'Apps Script 요청에 실패했습니다.');
+  try{result=await response.json();}catch(error){
+   if(['TimeoutError','AbortError'].includes(error.name))throw error;
+   throw new Error('서버가 JSON을 반환하지 않습니다. 웹 앱 배포와 접근 권한을 확인해 주세요.');
   }
-  if(['load','save','saveWorkers','loadAudit'].includes(payload.action)&&((result.workspace&&result.workspace!==workspace)||(workspace!=='cx'&&result.workspace!==workspace)))throw new Error('기업·알닷 저장소를 사용하려면 수정된 Code.gs를 Apps Script에 새 버전으로 배포해 주세요.');
+  if(!result?.ok){
+   if(result?.error==='POST 로그인 요청을 사용해 주세요.')throw new Error('서버에 이전 조회 코드가 배포되어 있습니다. Code.gs를 반영하고 새 버전으로 배포해 주세요.');
+   throw new Error(result?.error||result?.message||'Apps Script 요청에 실패했습니다.');
+  }
   return result;
+ }finally{updateLoadingBar(-1);}
+}
+async function sendRequest(payload){
+ const workspace=currentWorkspace;
+ const result=await postJson({...payload,workspace,token:authToken});
+ if(['load','save','saveWorkers','loadAudit','backupLedger'].includes(payload.action)&&((result.workspace&&result.workspace!==workspace)||(workspace!=='cx'&&result.workspace!==workspace)))throw new Error('기업·알닷 저장소를 사용하려면 수정된 Code.gs를 Apps Script에 새 버전으로 배포해 주세요.');
+ return result;
 }
 function lockControls(busy){['newTask','carryOver','saveAll','deleteToggle'].forEach(id=>{const el=$("#"+id);if(el)el.disabled=busy||!canEdit()});const refresh=$("#refresh");if(refresh)refresh.disabled=busy;$("#rows").inert=busy}
 async function load(){
@@ -115,7 +126,7 @@ async function saveAll(){
   if(currentUser&&!canEdit()){alert('수정하려면 편집 권한이 있는 계정으로 로그인해 주세요.');return false;}
   if(loading||saving)return false;
   if(!serverConnected){alert('서버 데이터를 먼저 불러와 주세요.');return false}
-  suppressAutoSave=true;document.activeElement?.blur?.();suppressAutoSave=false;
+  document.activeElement?.blur?.();
   const incomplete=data.findIndex(r=>!r[2].trim()||!r[5].trim());
   if(incomplete!==-1){
     const row=data[incomplete],missing=[!row[2].trim()?'작업자':'',!row[5].trim()?'업무제목':''].filter(Boolean).join(', ');
@@ -146,12 +157,6 @@ async function saveAll(){
   finally{saving=false;lockControls(false)}
 }
 function filters(){$('#worker').innerHTML='<option value="all">전체 작업자</option>'+visibleWorkers().map(x=>`<option>${esc(x)}</option>`).join('');$('#status').innerHTML='<option value="all">전체 단계</option>'+statuses.map(x=>`<option>${esc(x)}</option>`).join('')}
-function inSelectedMonth(value){
-  const match=String(value??'').trim().match(/^(?:(\d{4}|\d{2})[.\/-]\s*)?(\d{1,2})[.\/-]\s*(\d{1,2})(?:$|[T\s])/);
-  if(!match)return false;
-  const year=match[1]?(match[1].length===2?2000+Number(match[1]):Number(match[1])):calendarToday.getFullYear();
-  return year===selectedMonth.getFullYear()&&Number(match[2])===selectedMonth.getMonth()+1;
-}
 const MONTH_META='cx-month-v1:';
 function monthKey(date){return date.getFullYear()+'-'+String(date.getMonth()+1).padStart(2,'0')}
 function monthMeta(row){try{return String(row[7]).startsWith(MONTH_META)?JSON.parse(row[7].slice(MONTH_META.length)):null}catch{return null}}
@@ -195,7 +200,7 @@ function changeMonth(offset){
   if(loading||saving)return;
   const next=new Date(selectedMonth.getFullYear(),selectedMonth.getMonth()+offset,1);
   if(next<new Date(2026,8,1))return;
-  suppressAutoSave=true;document.activeElement?.blur?.();suppressAutoSave=false;selectedMonth=next;
+  document.activeElement?.blur?.();selectedMonth=next;
   updateMonth();render();
 }
 function ledgerTableSnapshot(month=monthKey(selectedMonth)){
@@ -209,7 +214,7 @@ function ledgerTableSnapshot(month=monthKey(selectedMonth)){
 }
 async function carryOver(){
   if(loading||saving||!serverConnected||(currentUser&&!canEdit()))return;
-  suppressAutoSave=true;document.activeElement?.blur?.();suppressAutoSave=false;
+  document.activeElement?.blur?.();
   pendingLedgerMonths.set(currentWorkspace,monthKey(selectedMonth));
   const next=new Date(selectedMonth.getFullYear(),selectedMonth.getMonth()+1,1);
   const count=copyPreviousMonth(next);
@@ -230,7 +235,7 @@ function dateCell(v,r,c=4){return `<td class="date-cell${c===4&&data[r]?.[3]==='
 function parsedHours(value){const normalized=String(value??"").trim().replace(",",".").replace(/\s*h(?:ours?)?$/i,"");const hours=Number(normalized);return Number.isFinite(hours)?hours:0;}
 function renderWorkSummary(rows){const totals=new Map();rows.forEach(({r})=>{const worker=String(r[2]||"").trim();if(worker)totals.set(worker,(totals.get(worker)||0)+parsedHours(r[9]));});const order=[...visibleWorkers(),...totals.keys()].filter((name,index,all)=>totals.has(name)&&all.indexOf(name)===index);const summary=$("#workSummary");summary.hidden=!order.length;summary.innerHTML=order.map((name,index)=>{const total=totals.get(name);return`<article ${order.length===1?'id="publishingWorkSummary" ':""}class="summary-card summary-work-card" data-worker="${esc(name)}"><span class="summary-label">작업시간</span><strong class="worker-name">${esc(name)}</strong><div class="work-time-value"><strong class="publishing-total-hours">${esc(total.toFixed(3))}</strong><span class="hour-unit">h</span></div></article>`;}).join("");}
 function render(){document.querySelectorAll('[data-enterprise-column]').forEach(el=>el.hidden=currentWorkspace!=='enterprise');document.querySelectorAll('[data-adjustment-column]').forEach(el=>el.hidden=currentWorkspace!=='cx');let a=selected();renderWorkSummary(a);$("#rows").innerHTML=a.map(({r,i})=>`<tr data-index="${i}" class="${newRows.has(i)?"new-row":""}"><td class="locked">${deleteMode?`<input class="row-check" type="checkbox" data-check="${i}" aria-label="행 선택">`:esc(registrationLabel(r[0]))}</td>${rmsCell(r[1],i)}${selectCell(r[2],i,2,["",...new Set([...visibleWorkers(),...(r[2]?[r[2]]:[])])],"worker-select")}${selectCell(r[3],i,3,statuses,"status-select")}${currentWorkspace==='enterprise'?dateCell(r[11],i,11):''}${dateCell(r[4],i)}${cell(r[5],i,5,"task")}${cell(r[6],i,6)}${numberCell(r[9],i,9)}${currentWorkspace==='cx'?numberCell(r[10],i,10):''}</tr>`).join("");$("#count").textContent=`총 ${a.length}개의 업무`;bind();if(currentUser&&!canEdit()){$$("#rows input, #rows select").forEach(el=>el.disabled=true);$$("#rows [contenteditable]").forEach(el=>el.setAttribute("contenteditable","false"));}$$(".row-check").forEach((x)=>(x.onchange=updateDeleteButton));updateDeleteButton();}
-function remember(r,c,v){data[r][c]=v;$('#saveStatus').textContent='● 변경사항 있음 · 저장 버튼을 눌러 주세요';if(!newRows.has(r)){edits[`${editPrefix}${r}:${c}`]=v;try{localStorage.setItem(storageKey(KEY),JSON.stringify(edits))}catch{}}}
+function remember(r,c,v){data[r][c]=v;$('#saveStatus').textContent='● 변경사항 있음 · 저장 버튼을 눌러 주세요';if(!newRows.has(r)){edits[`${r}:${c}`]=v;try{localStorage.setItem(storageKey(KEY),JSON.stringify(edits))}catch{}}}
 function editableText(element){const text=element.innerText??element.textContent;return +element.dataset.col===6?text:text.trim()}
 function bind(){$$(".number-input").forEach((x)=>(x.oninput=()=>{remember(+x.dataset.row,+x.dataset.col,x.value);renderWorkSummary(selected());}));$$(".rms-input").forEach((x)=>(x.onchange=()=>{remember(+x.dataset.row,1,x.value.trim());render();}));$$(".date-input").forEach((x)=>(x.onchange=()=>remember(+x.dataset.row,+(x.dataset.col||4),x.value)));$$("#rows [contenteditable]").forEach((x)=>{x.oninput=()=>remember(+x.dataset.row,+x.dataset.col,editableText(x));x.onkeydown=(e)=>{if(e.key==="Enter"&&!e.isComposing&&+x.dataset.col!==6){e.preventDefault();x.blur();}};x.onfocus=()=>(x.dataset.old=editableText(x));x.onblur=()=>{let v=editableText(x),r=+x.dataset.row,c=+x.dataset.col;if(v!==x.dataset.old){remember(r,c,v);x.classList.add("saved");setTimeout(()=>x.classList.remove("saved"),700);}};});$$(".cell-select").forEach((x)=>(x.onchange=()=>{let r=+x.dataset.row,c=+x.dataset.col,v=x.value;remember(r,c,v);if(c===3&&v==="진행중"&&!data[r][7])remember(r,7,nowText());if(c===3&&v==="완료")remember(r,8,nowText());render();}));}
 function addRow(){let d=new Date(),day=d.getFullYear()===selectedMonth.getFullYear()&&d.getMonth()===selectedMonth.getMonth()?d.getDate():1;data.push([`${selectedMonth.getFullYear()}-${String(selectedMonth.getMonth()+1).padStart(2,'0')}-${String(day).padStart(2,'0')}`,'','','배정','','','','','','','']);newRows.add(data.length-1);deleteMode=false;$('#saveStatus').textContent='● 새 업무 저장 필요';$('#search').value='';$('#worker').value='all';$('#status').value='all';render();requestAnimationFrame(()=>$('#rows tr:first-child .worker-select')?.focus())}
@@ -254,7 +259,7 @@ async function deleteSelected(){
 }
 
 
-function showView(){currentView='list';$('#list').hidden=false}
+function showView(){$('#list').hidden=false}
 function selectTab(tab){
  currentTab=tab;
  $$('[data-tab]').forEach(b=>b.classList.toggle('active',b.dataset.tab===tab));
@@ -369,7 +374,7 @@ $('#deleteToggle').onclick=()=>{
 
 $('#refresh').onclick=async()=>{
   if(loading||saving)return;
-  suppressAutoSave=true;document.activeElement?.blur?.();suppressAutoSave=false;
+  document.activeElement?.blur?.();
   $('#search').value='';
   selectTab('active');
   await load();
@@ -400,11 +405,7 @@ function roleName(role){return {admin:'관리자',editor:'편집자'}[role]||rol
 function applyPermissions(renderRows=true){if(!currentUser)return;$$('[data-password]').forEach(el=>el.hidden=!authToken||!canEdit());$$('[data-logout]').forEach(el=>el.hidden=!authToken);$$('[data-login]').forEach(el=>el.hidden=Boolean(authToken));$('#currentUser').textContent=currentUser.name+(currentUser.role?' · '+roleName(currentUser.role):'');$('#usersButton').hidden=currentUser.role!=='admin';const editable=canEdit();$('#workspacePage').classList.toggle('read-only',!editable);['newTask','carryOver','saveAll','deleteToggle'].forEach(id=>$('#'+id).disabled=!editable);if(renderRows)render();}
 function showAuthenticated(){closeGuide();$('#authPage').hidden=true;$('#homePage').hidden=false;}
 async function publicRequest(payload){
- try{
- const response=await trackedFetch(window.APPS_SCRIPT_URL,{method:'POST',cache:'no-store',headers:{'Content-Type':'text/plain;charset=utf-8'},body:JSON.stringify(payload),signal:AbortSignal.timeout(requestTimeout(payload.action))});
- if(!response.ok)throw new Error('서버 응답 오류 (HTTP '+response.status+')');
- const result=await response.json();if(!result?.ok)throw new Error(result?.error||'요청에 실패했습니다.');return result;
- }catch(error){throw requestError(error);}
+ try{return await postJson(payload);}catch(error){throw requestError(error);}
 }
 
 const AUTH_USER_KEY='workflow-auth-user';
@@ -414,7 +415,7 @@ async function initAuth(){
  try{authToken=localStorage.getItem('workflow-auth-token')||sessionStorage.getItem('workflow-auth-token')||'';}catch{}
  if(!authToken){openLogin();return;}
  const token=authToken;restoringAuth=true;currentUser={name:'로그인 확인 중'};
- showAuthenticated();applyPermissions();
+ showAuthenticated();applyPermissions(false);
  // A workspace load already validates the session and returns the user.
  if(Object.hasOwn(workspaceNames,window.location.hash.slice(1))){await restoreRoute();return;}
  showHome();
@@ -456,7 +457,7 @@ function openLogin(){closeGuide();
 }
 $$('[data-login]').forEach(el=>el.onclick=openLogin);
 
-$("#authForm").onsubmit=async(event)=>{event.preventDefault();$("#authError").textContent="로그인 정보를 확인하고 있습니다…";$("#loginSubmit").disabled=true;try{if(setupRequired){await publicRequest({action:"setupAdmin",username:$("#loginUsername").value,password:$("#loginPassword").value,name:$("#loginName").value,});setupRequired=false;}const result=await publicRequest({action:"login",username:$("#loginUsername").value,password:$("#loginPassword").value,});if(result.setupRequired){setupRequired=true;configureLogin();$('#loginName').focus();return;}authToken=result.token;currentUser=result.user;restoringAuth=false;try{localStorage.setItem("workflow-auth-token",authToken);}catch{}storeAuthUser(currentUser);showAuthenticated();applyPermissions();await restoreRoute();}catch(error){$("#authError").textContent=error.message;}finally{$("#loginSubmit").disabled=false;}};
+$("#authForm").onsubmit=async(event)=>{event.preventDefault();$("#authError").textContent="로그인 정보를 확인하고 있습니다…";$("#loginSubmit").disabled=true;try{if(setupRequired){await publicRequest({action:"setupAdmin",username:$("#loginUsername").value,password:$("#loginPassword").value,name:$("#loginName").value,});setupRequired=false;}const result=await publicRequest({action:"login",username:$("#loginUsername").value,password:$("#loginPassword").value,});if(result.setupRequired){setupRequired=true;configureLogin();$('#loginName').focus();return;}authToken=result.token;currentUser=result.user;restoringAuth=false;try{localStorage.setItem("workflow-auth-token",authToken);}catch{}storeAuthUser(currentUser);showAuthenticated();applyPermissions(false);await restoreRoute();}catch(error){$("#authError").textContent=error.message;}finally{$("#loginSubmit").disabled=false;}};
 $$("[data-logout]").forEach(el=>el.onclick=async()=>{try{await requestServer({action:"logout"});}catch{}clearAuthSession();location.reload();});
 let passwordChanging=false;
 $$('[data-password]').forEach(el=>el.onclick=()=>{
