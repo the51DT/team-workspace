@@ -3,14 +3,14 @@ const assert=require('node:assert/strict');
 const fs=require('node:fs');
 const vm=require('node:vm');
 const source=fs.readFileSync(require('node:path').join(__dirname,'../app.js'),'utf8');
-function app(handler,storage=new Map(),hash='#cx',guest=false){
+function app(handler,storage=new Map(),hash='#cx',guest=false,sessionStore=new Map()){
   const location={hash,pathname:'/index.html',search:''};
   const navigate=(_state,_title,url)=>{location.hash=url.includes('#')?url.slice(url.indexOf('#')):''};
   const elements=new Map(),requests=[];
   const element=id=>{if(!elements.has(id))elements.set(id,{value:['#worker','#status'].includes(id)?'all':'',innerHTML:'',textContent:'',classList:{active:false,toggle(_name,on){this.active=on}},addEventListener(){},setAttribute(){},focus(){}});return elements.get(id)};
   const context=vm.createContext({window:{location,history:{pushState:navigate,replaceState:navigate},addEventListener(){},APPS_SCRIPT_URL:'https://example.test/exec',WORKERS:['작업자 A']},URL,AbortSignal,console,
     fetch:async(url,options)=>{const payload=options.method==='GET'?Object.fromEntries(new URL(url).searchParams):JSON.parse(options.body);requests.push({url,payload,method:options.method,headers:options.headers});const result=await handler(payload);return {ok:true,json:async()=>result}},
-    localStorage:{getItem:key=>storage.get(key)??null,setItem:(key,value)=>storage.set(key,value),removeItem:key=>storage.delete(key)},sessionStorage:{getItem:key=>storage.get(key)??null,setItem:(key,value)=>storage.set(key,value),removeItem:key=>storage.delete(key)},alert(){},confirm:()=>true,requestAnimationFrame:fn=>fn(),setTimeout,
+    localStorage:{getItem:key=>storage.get(key)??null,setItem:(key,value)=>storage.set(key,value),removeItem:key=>storage.delete(key)},sessionStorage:{getItem:key=>sessionStore.get(key)??null,setItem:(key,value)=>sessionStore.set(key,value),removeItem:key=>sessionStore.delete(key)},alert(){},confirm:()=>true,requestAnimationFrame:fn=>fn(),setTimeout,
     document:{querySelector:element,querySelectorAll:()=>[],...(guest?{getElementById:element}:{})}});
   const ready=vm.runInContext(guest?source:source.replace("let authToken=''","let authToken='test-session'"),context);
   return {ready,requests,element,run:code=>vm.runInContext(code,context)};
@@ -563,4 +563,20 @@ test('persistent result 404 stops after one GET without repeating a save',async(
  page.run("let methods=[];fetch=async(url,options)=>{methods.push(options.method);return {ok:false,status:404,redirected:true,url:'https://script.googleusercontent.com/macros/echo?test=result'}}");
  await assert.rejects(page.run("publicRequest({action:'save',tasks:[]})"),/반영 여부/);
  assert.equal(page.run("methods.join(',')"),'POST,GET');
+});
+
+test('login token survives a new tab and legacy tab tokens migrate',async()=>{
+ const local=new Map([['workflow-auth-token','persistent']]);
+ const handler=p=>({ok:true,user:{username:'admin',name:'관리자',role:'admin'},tasks:[]});
+ const page=app(handler,local,'',true,new Map());await page.ready;
+ assert.equal(page.requests[0].payload.token,'persistent');
+ const legacyLocal=new Map(),tab=new Map([['workflow-auth-token','legacy']]);
+ const migrated=app(handler,legacyLocal,'',true,tab);await migrated.ready;
+ assert.equal(legacyLocal.get('workflow-auth-token'),'legacy');assert.equal(tab.has('workflow-auth-token'),false);
+ migrated.run('clearAuthSession()');assert.equal(legacyLocal.has('workflow-auth-token'),false);
+});
+test('temporary session request failure preserves persistent login',async()=>{
+ const local=new Map([['workflow-auth-token','persistent']]);
+ const page=app(()=>{throw new TypeError('Failed to fetch')},local,'',true,new Map());await page.ready;
+ assert.equal(local.get('workflow-auth-token'),'persistent');
 });

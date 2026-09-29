@@ -161,11 +161,11 @@ test('password change verifies current password, updates only the session owner 
 });
 
 
-test('password bounds and 24-hour sessions enforce the expiry policy',()=>{
+test('password bounds and Korean-midnight sessions enforce the expiry policy',()=>{
  const app=harness();for(const n of [7,21,100])assert.throws(()=>app.run('cleanPassword('+JSON.stringify('a'.repeat(n))+')'));
  for(const n of [8,20])assert.equal(app.run('cleanPassword('+JSON.stringify('a'.repeat(n))+')').length,n);
  setupAdmin(app);const before=Date.now(),session=app.run("loginPayload({username:'admin',password:'password1'})"),expires=new Date(session.expiresAt).getTime();
- assert.ok(expires-before>=24*3600000-1000&&expires-before<=24*3600000+1000);
+ assert.ok(expires>before&&expires-before<=24*3600000);assert.equal(new Date(expires+9*3600000).toISOString().slice(11),'00:00:00.000Z');
  assert.equal(app.run('requireSession('+JSON.stringify(session.token)+').role'),'admin');
  app.run('Date=class extends Date {static now(){return '+(expires+1)+'}}');assert.throws(()=>app.run('requireSession('+JSON.stringify(session.token)+')'));
  app.run('logoutPayload('+JSON.stringify(session.token)+')');assert.throws(()=>app.run('requireSession('+JSON.stringify(session.token)+')'));
@@ -213,4 +213,52 @@ test('row hints recover after deletion and cache loss without accepting revoked 
  app.cache.clear();assert.equal(validate(second.token).role,'admin');
  app.run("CacheService.getScriptCache=()=>{throw Error('cache unavailable')}");
  assert.equal(validate(second.token).role,'admin');
+});
+
+test('optimized hashes match independent SHA-256 for legacy passwords and both base64 paddings',()=>{
+ const crypto=require('node:crypto');
+ for(const padded of [false,true]){
+  const app=harness();
+  if(padded)app.run("const encode=Utilities.base64EncodeWebSafe;Utilities.base64EncodeWebSafe=bytes=>encode(bytes)+'='");
+  for(const input of ['salt:password1','한글:비밀번호🔐123','s:','x'.repeat(140)]){
+   let expected=input;
+   for(let i=0;i<2000;i++)expected=crypto.createHash('sha256').update(expected).digest(padded?'base64':'base64url').replace(/\+/g,'-').replace(/\//g,'_');
+   assert.equal(app.run('advancePasswordHash('+JSON.stringify(input)+',2000)'),expected);
+  }
+ }
+});
+test('login completes in one POST and hashing uses one digest service call',()=>{
+ const app=harness();setupAdmin(app);app.cache.clear();
+ app.run("let digestCalls=0;const digest=Utilities.computeDigest;Utilities.computeDigest=(...args)=>{digestCalls++;return digest(...args)}");
+ app.run("passwordHash('password1','salt')");assert.equal(app.run('digestCalls'),1);
+ app.run('jsonResponse=payload=>payload');
+ const result=app.run('doPost({postData:{contents:JSON.stringify({action:"login",username:"admin",password:"password1"})}})');
+ assert.equal(result.ok,true);assert.ok(result.token);assert.equal(result.pending,undefined);
+});
+test('session remains valid right until Korean midnight',()=>{
+ const app=harness();setupAdmin(app);const session=app.run("loginPayload({username:'admin',password:'password1'})");
+ const expires=Date.parse(session.expiresAt);
+ app.run('Date=class extends Date {static now(){return '+(expires-1)+'}}');
+ assert.equal(app.run('requireSession('+JSON.stringify(session.token)+').role'),'admin');
+ app.run('Date=class extends Date {static now(){return '+expires+'}}');
+ assert.throws(()=>app.run('requireSession('+JSON.stringify(session.token)+')'),/만료/);
+});
+
+test('session expiry uses Korean midnight across day, month and year boundaries',()=>{
+ const app=harness();
+ for(const [now,expected] of [
+  ['2026-09-29T00:00:00+09:00','2026-09-30T00:00:00+09:00'],
+  ['2026-09-29T23:59:59+09:00','2026-09-30T00:00:00+09:00'],
+  ['2026-09-30T23:00:00+09:00','2026-10-01T00:00:00+09:00'],
+  ['2026-12-31T23:00:00+09:00','2027-01-01T00:00:00+09:00']
+ ])assert.equal(app.run('nextSessionMidnight('+Date.parse(now)+')'),Date.parse(expected));
+});
+test('legacy 24-hour sessions expire at the first midnight after issuance',()=>{
+ const app=harness();setupAdmin(app);
+ const session=app.run("loginPayload({username:'admin',password:'password1'})");
+ app.sheets.get('웹앱_세션').rows[1][2]='2026-09-30T13:00:00+09:00';
+ app.run('Date=class extends Date {static now(){return '+Date.parse('2026-09-29T23:59:59+09:00')+'}}');
+ assert.equal(app.run('requireSession('+JSON.stringify(session.token)+').role'),'admin');
+ app.run('Date=class extends Date {static now(){return '+Date.parse('2026-09-30T00:00:00+09:00')+'}}');
+ assert.throws(()=>app.run('requireSession('+JSON.stringify(session.token)+')'),/만료/);
 });

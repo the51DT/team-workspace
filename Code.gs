@@ -2,19 +2,29 @@ const DATA_SHEETS = {cx:'웹앱_CX_업무데이터', enterprise:'웹앱_기업_�
 const WORKER_SHEETS = {cx:'웹앱_CX_작업자', enterprise:'웹앱_기업_작업자', aldot:'웹앱_알닷_작업자'};
 const LEDGER_SHEETS = {cx:'웹앱_CX_업무대장', enterprise:'웹앱_기업_업무대장', aldot:'웹앱_알닷_업무대장'};
 const AUTH_SHEET='웹앱_계정', SESSION_SHEET='웹앱_세션', AUDIT_SHEET='웹앱_수정이력';
-const ROLES=['admin','editor'], SESSION_HOURS=24;
+const ROLES=['admin','editor'];
+const KST_OFFSET_MS=9*60*60*1000,DAY_MS=24*60*60*1000;
+function nextSessionMidnight(now=Date.now()){return (Math.floor((now+KST_OFFSET_MS)/DAY_MS)+1)*DAY_MS-KST_OFFSET_MS;}
+function sessionExpiry(value){
+ const stored=new Date(value).getTime();
+ // Also align legacy 24-hour expiry values to the intervening Korean midnight.
+ return Math.floor((stored+KST_OFFSET_MS)/DAY_MS)*DAY_MS-KST_OFFSET_MS;
+}
 function workspaceKey(value){const key=value||'cx';if(!Object.prototype.hasOwnProperty.call(DATA_SHEETS,key))throw new Error('지원하지 않는 업무 공간입니다.');return key}
 
 function doGet(){return jsonResponse({ok:false,error:'로그인이 필요합니다. 인증된 POST 요청을 사용해 주세요.'});}
 
-let requestStartedAt=0;
+let requestStartedAt=0,requestBook=null;
+function activeBook(){return requestBook||SpreadsheetApp.getActiveSpreadsheet();}
 function doPost(e) {
   requestStartedAt=Date.now();
   try {
     const request=JSON.parse((e&&e.postData&&e.postData.contents)||'{}');
+    requestBook=SpreadsheetApp.getActiveSpreadsheet();
     if(request.action==='authStatus')return jsonResponse({ok:true,setupRequired:!hasUsers()});
     if(request.action==='setupAdmin')return jsonResponse(setupAdmin(request));
-    if(request.action==='login'||request.action==='loginContinue')return jsonResponse(loginChunkPayload(request));
+    if(request.action==='login')return jsonResponse(loginPayload(request));
+    if(request.action==='loginContinue')return jsonResponse(loginChunkPayload(request));
 
     const user=requireSession(request.token);
     if(request.action==='loadAudit')return jsonResponse(loadAuditPayload(request.workspace,request.cursor));
@@ -33,7 +43,7 @@ function doPost(e) {
 function loadPayload(workspace) {
   workspace=workspaceKey(workspace);
   // Existing data is read in one range call; readers need not wait for writers.
-  const book=SpreadsheetApp.getActiveSpreadsheet();
+  const book=activeBook();
   let sheet=book.getSheetByName(DATA_SHEETS[workspace]);
   if(!sheet){
     const lock=LockService.getScriptLock();lock.waitLock(10000);
@@ -70,7 +80,7 @@ function saveWorkersPayload(workers, workspace) {
 
 function getWorkerSheet(workspace, createIfMissing) {
   workspace = workspaceKey(workspace);
-  const book = SpreadsheetApp.getActiveSpreadsheet();
+  const book=activeBook();
   if (!book) throw new Error('대상 스프레드시트의 확장 프로그램 → Apps Script에서 실행해 주세요.');
   const sheetName = WORKER_SHEETS[workspace];
   let sheet = book.getSheetByName(sheetName);
@@ -102,7 +112,7 @@ function backupLedgerPayload(headers,rows,workspace) {
   const lock=LockService.getScriptLock();
   lock.waitLock(10000);
   try{
-    const book=SpreadsheetApp.getActiveSpreadsheet();
+    const book=activeBook();
     if(!book)throw new Error('대상 스프레드시트의 확장 프로그램 → Apps Script에서 실행해 주세요.');
     const name=LEDGER_SHEETS[workspace];
     let sheet=book.getSheetByName(name);
@@ -140,7 +150,7 @@ function savePayload(tasks, workspace, user) {
 function getDataSheet(workspace) {
   workspace=workspaceKey(workspace);
   const sheetName=DATA_SHEETS[workspace];
-  const book = SpreadsheetApp.getActiveSpreadsheet();
+  const book=activeBook();
   if (!book) throw new Error('대상 스프레드시트의 확장 프로그램 → Apps Script에서 실행해 주세요.');
   let sheet = book.getSheetByName(sheetName);
   if (!sheet) {
@@ -157,14 +167,43 @@ function jsonResponse(payload) {
     .setMimeType(ContentService.MimeType.JSON);
 }
 
-function hiddenSheet(name,headers){const book=SpreadsheetApp.getActiveSpreadsheet();if(!book)throw new Error('대상 스프레드시트에서 실행해 주세요.');let sheet=book.getSheetByName(name);if(!sheet){sheet=book.insertSheet(name);sheet.getRange(1,1,1,headers.length).setValues([headers]);sheet.hideSheet();}return sheet;}
+function hiddenSheet(name,headers){const book=activeBook();if(!book)throw new Error('대상 스프레드시트에서 실행해 주세요.');let sheet=book.getSheetByName(name);if(!sheet){sheet=book.insertSheet(name);sheet.getRange(1,1,1,headers.length).setValues([headers]);sheet.hideSheet();}return sheet;}
 function authSheet(){return hiddenSheet(AUTH_SHEET,['아이디','이름','권한','Salt','Password Hash','활성','생성일']);}
 function sessionSheet(){return hiddenSheet(SESSION_SHEET,['Token','아이디','만료시각']);}
 function auditSheet(){return hiddenSheet(AUDIT_SHEET,['시각','아이디','이름','권한','워크스페이스','작업','업무','항목','변경 전','변경 후']);}
 function hasUsers(){return authSheet().getLastRow()>1;}
 function cleanUsername(v){const u=String(v||'').trim().toLowerCase();if(!/^[a-z0-9._-]{3,40}$/.test(u))throw new Error('아이디는 영문 소문자, 숫자, ., _, -로 3~40자여야 합니다.');return u;}
 function cleanPassword(v){const p=String(v||'');if(p.length<8||p.length>20)throw new Error('비밀번호는 8~20자여야 합니다.');return p;}
-function advancePasswordHash(value,iterations){for(let i=0;i<iterations;i++)value=Utilities.base64EncodeWebSafe(Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256,value,Utilities.Charset.UTF_8));return value;}
+// After the first digest the input is always 43/44 ASCII base64url bytes.
+// Process this single SHA-256 block locally instead of making 4,000 service calls.
+function hashBase64Block(value){
+ const k=[0x428a2f98,0x71374491,0xb5c0fbcf,0xe9b5dba5,0x3956c25b,0x59f111f1,0x923f82a4,0xab1c5ed5,0xd807aa98,0x12835b01,0x243185be,0x550c7dc3,0x72be5d74,0x80deb1fe,0x9bdc06a7,0xc19bf174,0xe49b69c1,0xefbe4786,0x0fc19dc6,0x240ca1cc,0x2de92c6f,0x4a7484aa,0x5cb0a9dc,0x76f988da,0x983e5152,0xa831c66d,0xb00327c8,0xbf597fc7,0xc6e00bf3,0xd5a79147,0x06ca6351,0x14292967,0x27b70a85,0x2e1b2138,0x4d2c6dfc,0x53380d13,0x650a7354,0x766a0abb,0x81c2c92e,0x92722c85,0xa2bfe8a1,0xa81a664b,0xc24b8b70,0xc76c51a3,0xd192e819,0xd6990624,0xf40e3585,0x106aa070,0x19a4c116,0x1e376c08,0x2748774c,0x34b0bcb5,0x391c0cb3,0x4ed8aa4a,0x5b9cca4f,0x682e6ff3,0x748f82ee,0x78a5636f,0x84c87814,0x8cc70208,0x90befffa,0xa4506ceb,0xbef9a3f7,0xc67178f2];
+ const initial=[0x6a09e667,0xbb67ae85,0x3c6ef372,0xa54ff53a,0x510e527f,0x9b05688c,0x1f83d9ab,0x5be0cd19],w=new Array(64).fill(0);
+ const rotate=(x,n)=>(x>>>n)|(x<<(32-n));
+ for(let i=0;i<value.length;i++)w[i>>>2]|=value.charCodeAt(i)<<(24-(i%4)*8);
+ w[value.length>>>2]|=0x80<<(24-(value.length%4)*8);w[15]=value.length*8;
+ for(let i=16;i<64;i++){
+  const x=w[i-15],y=w[i-2];
+  w[i]=(w[i-16]+(rotate(x,7)^rotate(x,18)^(x>>>3))+w[i-7]+(rotate(y,17)^rotate(y,19)^(y>>>10)))|0;
+ }
+ let [a,b,c,d,e,f,g,h]=initial;
+ for(let i=0;i<64;i++){
+  const t1=(h+(rotate(e,6)^rotate(e,11)^rotate(e,25))+((e&f)^(~e&g))+k[i]+w[i])|0;
+  const t2=((rotate(a,2)^rotate(a,13)^rotate(a,22))+((a&b)^(a&c)^(b&c)))|0;
+  h=g;g=f;f=e;e=(d+t1)|0;d=c;c=b;b=a;a=(t1+t2)|0;
+ }
+ const words=[a,b,c,d,e,f,g,h].map((v,i)=>(v+initial[i])|0),bytes=[];
+ for(const word of words)for(let shift=24;shift>=0;shift-=8)bytes.push((word>>>shift)&255);
+ const alphabet='ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_';let out='';
+ for(let i=0;i<bytes.length;i+=3){const v=(bytes[i]<<16)|((bytes[i+1]||0)<<8)|(bytes[i+2]||0);out+=alphabet[(v>>>18)&63]+alphabet[(v>>>12)&63];if(i+1<bytes.length)out+=alphabet[(v>>>6)&63];if(i+2<bytes.length)out+=alphabet[v&63];}
+ return out+(value.endsWith('=')?'=':'');
+}
+function advancePasswordHash(value,iterations){
+ if(iterations<1)return value;
+ value=Utilities.base64EncodeWebSafe(Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256,value,Utilities.Charset.UTF_8));
+ for(let i=1;i<iterations;i++)value=hashBase64Block(value);
+ return value;
+}
 function passwordHash(p,s){return advancePasswordHash(s+':'+p,2000);}
 function passwordFingerprint(p,user){return 'password-ok-v1:'+Utilities.base64EncodeWebSafe(Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256,user.username+'\u0000'+user.hash+'\u0000'+p,Utilities.Charset.UTF_8));}
 function passwordMatches(p,user){
@@ -209,7 +248,7 @@ function issueLoginSession(user){
  try{
   const latest=findUser(user.username);
   if(!latest||!latest.active||ROLES.indexOf(latest.role)<0||latest.hash!==user.hash||latest.salt!==user.salt)throw new Error('계정 정보가 변경되었습니다. 다시 로그인해 주세요.');
-  const token=Utilities.getUuid()+Utilities.getUuid().replace(/-/g,''),expires=new Date(Date.now()+SESSION_HOURS*3600000).toISOString();
+  const token=Utilities.getUuid()+Utilities.getUuid().replace(/-/g,''),expires=new Date(nextSessionMidnight()).toISOString();
   sessionSheet().appendRow([token,user.username,expires]);
   return {ok:true,token:token,user:publicUser(latest),expiresAt:expires};
  }finally{lock.releaseLock();}
@@ -248,7 +287,7 @@ function loginChunkPayload(r){
 function requireSession(token){
  token=String(token||'');if(!token)throw new Error('로그인이 필요합니다.');
  const row=findAuthRow(sessionSheet(),'session',token,3,false);
- if(row&&row[2]&&new Date(row[2]).getTime()>Date.now()){
+ if(row&&row[2]&&sessionExpiry(row[2])>Date.now()){
   const user=findUser(String(row[1]).toLowerCase());
   if(user&&user.active&&ROLES.indexOf(user.role)>=0)return user;
  }
