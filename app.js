@@ -60,11 +60,24 @@ async function postJson(payload){
  if(!window.APPS_SCRIPT_URL)throw new Error('config.js에 Apps Script 웹 앱 URL을 설정해 주세요.');
  updateLoadingBar(1);
  try{
-  const response=await fetch(window.APPS_SCRIPT_URL,{
+  const signal=AbortSignal.timeout(requestTimeout(payload.action));
+  let response=await fetch(window.APPS_SCRIPT_URL,{
    method:'POST',cache:'no-store',headers:{'Content-Type':'text/plain;charset=utf-8'},
-   body:JSON.stringify(payload),signal:AbortSignal.timeout(requestTimeout(payload.action))
+   body:JSON.stringify(payload),signal
   });
-  if(!response.ok)throw new Error('서버 응답 오류 (HTTP '+response.status+')');
+  // Retry only Google's redirected result GET, never replay a mutation POST.
+  let resultUrl;
+  try{resultUrl=new URL(response.url);}catch{}
+  const googleResult=response.redirected&&resultUrl?.protocol==='https:'&&resultUrl.hostname==='script.googleusercontent.com';
+  if(response.status===404&&googleResult){
+   response=await fetch(resultUrl.href,{method:'GET',cache:'no-store',credentials:'omit',signal});
+  }
+  if(!response.ok){
+   if(response.status===404)throw new Error(googleResult
+    ?'Google 응답 결과를 찾을 수 없습니다 (HTTP 404). 요청은 처리되었을 수 있습니다. 로그인은 다시 시도하고, 저장·계정 생성은 반영 여부를 먼저 확인해 주세요.'
+    :'Apps Script 배포 주소를 찾을 수 없습니다 (HTTP 404). config.js의 /exec 주소와 웹 앱 배포·접근 권한을 확인해 주세요.');
+   throw new Error('서버 응답 오류 (HTTP '+response.status+')');
+  }
   let result;
   try{result=await response.json();}catch(error){
    if(['TimeoutError','AbortError'].includes(error.name))throw error;

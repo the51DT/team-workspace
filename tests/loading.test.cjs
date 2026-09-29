@@ -545,3 +545,22 @@ test('ledger failure retains carry save context for retry',async()=>{
  assert.equal(page.run("pendingLedgerMonths.get('cx')"),'2026-09');assert.equal(page.requests.filter(r=>r.payload.action==='save').length,0);
  fail=false;await page.run('saveAll()');assert.equal(page.run('pendingLedgerMonths.size'),0);
 });
+
+test('redirected Google result 404 retries only the result GET',async()=>{
+ const page=app(()=>({ok:true}),new Map(),'',true);await page.ready;
+ page.run("let calls=[];fetch=async(url,options)=>{calls.push({url,method:options.method});return calls.length===1?{ok:false,status:404,redirected:true,url:'https://script.googleusercontent.com/macros/echo?test=result'}:{ok:true,json:async()=>({ok:true})}};");
+ await page.run("publicRequest({action:'login',username:'example',password:'password1'})");
+ assert.equal(page.run("calls.map(x=>x.method).join(',')"),'POST,GET');
+});
+test('deployment 404 is actionable and does not replay the POST',async()=>{
+ const page=app(()=>({ok:true}),new Map(),'',true);await page.ready;
+ page.run("let count=0;fetch=async()=>{count++;return {ok:false,status:404,redirected:false,url:'https://script.google.com/macros/s/deployment/exec'}}");
+ await assert.rejects(page.run("publicRequest({action:'login'})"),/배포 주소.*404/);
+ assert.equal(page.run('count'),1);
+});
+test('persistent result 404 stops after one GET without repeating a save',async()=>{
+ const page=app(()=>({ok:true}),new Map(),'',true);await page.ready;
+ page.run("let methods=[];fetch=async(url,options)=>{methods.push(options.method);return {ok:false,status:404,redirected:true,url:'https://script.googleusercontent.com/macros/echo?test=result'}}");
+ await assert.rejects(page.run("publicRequest({action:'save',tasks:[]})"),/반영 여부/);
+ assert.equal(page.run("methods.join(',')"),'POST,GET');
+});
