@@ -14,10 +14,10 @@ function workspaceKey(value){const key=value||'cx';if(!Object.prototype.hasOwnPr
 
 function doGet(){return jsonResponse({ok:false,error:'로그인이 필요합니다. 인증된 POST 요청을 사용해 주세요.'});}
 
-let requestStartedAt=0,requestBook=null;
+let requestStartedAt=0,requestBook=null,requestPhases=null;
 function activeBook(){return requestBook||SpreadsheetApp.getActiveSpreadsheet();}
 function doPost(e) {
-  requestStartedAt=Date.now();
+  requestStartedAt=Date.now();requestPhases={};
   try {
     const request=JSON.parse((e&&e.postData&&e.postData.contents)||'{}');
     requestBook=SpreadsheetApp.getActiveSpreadsheet();
@@ -26,12 +26,14 @@ function doPost(e) {
     if(request.action==='login')return jsonResponse(loginPayload(request));
     if(request.action==='loginContinue')return jsonResponse(loginChunkPayload(request));
 
+    const authStartedAt=Date.now();
     const user=requireSession(request.token);
+    requestPhases.authMs=Date.now()-authStartedAt;
     if(request.action==='loadAudit')return jsonResponse(loadAuditPayload(request.workspace,request.cursor));
     if(request.action==='changePassword')return jsonResponse(changePasswordPayload(request));
     if(request.action==='logout')return jsonResponse(logoutPayload(request.token));
     if(request.action==='session')return jsonResponse({ok:true,user:publicUser(user)});
-    if(request.action==='load')return jsonResponse(Object.assign(loadPayload(request.workspace),{user:publicUser(user)}));
+    if(request.action==='load'){const started=Date.now(),result=loadPayload(request.workspace);requestPhases.loadMs=Date.now()-started;return jsonResponse(Object.assign(result,{user:publicUser(user)}));}
     if(request.action==='save'){requireRole(user,['admin','editor']);return jsonResponse(savePayload(request.tasks,request.workspace,user));}
     if(request.action==='backupLedger'){requireRole(user,['admin','editor']);return jsonResponse(backupLedgerPayload(request.headers,request.rows,request.workspace));}
     if(request.action==='saveWorkers'){requireRole(user,['admin']);return jsonResponse(saveWorkersPayload(request.workers,request.workspace));}
@@ -57,8 +59,9 @@ function loadPayload(workspace) {
 
 function loadWorkers(workspace) {
   const sheet = getWorkerSheet(workspace, false);
-  if (!sheet || sheet.getLastRow() < 2) return [];
-  return sheet.getRange(2, 1, sheet.getLastRow() - 1, 1).getDisplayValues()
+  const last=sheet?sheet.getLastRow():0;
+  if (last < 2) return [];
+  return sheet.getRange(2, 1, last - 1, 1).getDisplayValues()
     .flat().map(function (name) { return String(name).trim(); }).filter(Boolean);
 }
 
@@ -162,6 +165,7 @@ function getDataSheet(workspace) {
 }
 
 function jsonResponse(payload) {
+  if(requestPhases)payload.serverPhases=requestPhases;
   if(requestStartedAt)payload.serverElapsedMs=Date.now()-requestStartedAt;
   return ContentService.createTextOutput(JSON.stringify(payload))
     .setMimeType(ContentService.MimeType.JSON);

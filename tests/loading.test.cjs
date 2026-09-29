@@ -580,3 +580,15 @@ test('temporary session request failure preserves persistent login',async()=>{
  const page=app(()=>{throw new TypeError('Failed to fetch')},local,'',true,new Map());await page.ready;
  assert.equal(local.get('workflow-auth-token'),'persistent');
 });
+
+test('select option reuse preserves row bindings, selection and escaping',async()=>{
+ const page=app(()=>({ok:true,tasks:[]}));await page.ready;
+ page.run('var optionCache=new Map()');
+ const first=page.run('selectCell("A",0,2,["","A","<B>"],"worker-select",optionCache)');
+ const second=page.run('selectCell("A",99,2,["","A","<B>"],"worker-select",optionCache)');
+ assert.match(first,/data-row="0"/);assert.match(second,/data-row="99"/);
+ assert.match(second,/<option selected>A/);assert.match(second,/&lt;B&gt;/);
+ assert.equal(page.run('optionCache.size'),1);
+ const other=page.run('selectCell("<B>",1,2,["","A","<B>"],"worker-select",optionCache)');
+ assert.match(other,/<option selected>&lt;B&gt;/);assert.equal(page.run('optionCache.size'),2);
+});
