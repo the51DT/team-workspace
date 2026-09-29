@@ -198,7 +198,7 @@ test('login timeout gives a readable message and allows retry without automatic 
  const page=app(()=>{throw timeoutError()},new Map(),'',true);await page.ready;
  await page.element('#authForm').onsubmit({preventDefault(){}});
  assert.match(page.element('#authError').textContent,/서버 응답 시간이 초과/);assert.equal(page.element('#loginSubmit').disabled,false);
- assert.equal(page.requests.length,1);assert.equal(page.run("requestTimeout('login')"),90000);
+ assert.equal(page.requests.length,1);assert.equal(page.run("requestTimeout('login')"),330000);
 });
 
 test('account list timeout is shown inside dialog and duplicate clicks share the active attempt',async()=>{

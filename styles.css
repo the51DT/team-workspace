@@ -1269,21 +1269,79 @@ dialog::backdrop {
   background: #ffe0e0;
 }
 
-#guideDialog { width: min(620px, calc(100vw - 32px)); }
-.guide-card { width: 100%; }
-.guide-card #guideIntro { color: #52634d; margin: 4px 0 20px; }
-.guide-steps { padding-left: 24px; margin: 0; }
-.guide-steps li { padding-left: 4px; margin-bottom: 16px; }
-.guide-steps p { margin: 5px 0 0; line-height: 1.65; font-size: 14px; color: #52634d; }
-.guide-note { font-size: 12px; line-height: 1.5; color: #65705f; margin-top: 20px; }
+#guideDialog {
+  width: min(620px, calc(100vw - 32px));
+}
+.guide-card {
+  width: 100%;
+}
+.guide-card #guideIntro {
+  color: #52634d;
+  margin: 4px 0 20px;
+}
+.guide-steps {
+  padding-left: 24px;
+  margin: 0;
+}
+.guide-steps li {
+  padding-left: 4px;
+  margin-bottom: 16px;
+}
+.guide-steps p {
+  margin: 5px 0 0;
+  line-height: 1.65;
+  font-size: 14px;
+  color: #52634d;
+}
+.guide-note {
+  font-size: 12px;
+  line-height: 1.5;
+  color: #65705f;
+  margin-top: 20px;
+}
 
-.history-action { font-size: 12px; color: #52634d; background: #edf4e7; padding: 3px 8px; border-radius: 6px; }
-.history-values { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 6px; }
-.history-values > div { min-width: 0; padding: 10px; background: #f5f6f8; border-radius: 8px; }
-.history-values > div:last-child { background: #edf6ec; }
-.history-values small, .history-values span { display: block; }
-.history-values span { white-space: pre-wrap; overflow-wrap: anywhere; margin-top: 4px; }
-.history-field { margin-top: 8px; }
-.history-empty { color: #697386; }
-#historyError { color: #c52b36; }
-@media(max-width: 480px) { .history-values { grid-template-columns: 1fr; } }
+.history-action {
+  font-size: 12px;
+  color: #52634d;
+  background: #edf4e7;
+  padding: 3px 8px;
+  border-radius: 6px;
+}
+.history-values {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  margin-top: 6px;
+}
+.history-values > div {
+  min-width: 0;
+  padding: 10px;
+  background: #f5f6f8;
+  border-radius: 8px;
+}
+.history-values > div:last-child {
+  background: #edf6ec;
+}
+.history-values small,
+.history-values span {
+  display: block;
+}
+.history-values span {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  margin-top: 4px;
+}
+.history-field {
+  margin-top: 8px;
+}
+.history-empty {
+  color: #697386;
+}
+#historyError {
+  color: #c52b36;
+}
+@media (max-width: 480px) {
+  .history-values {
+    grid-template-columns: 1fr;
+  }
+}

@@ -165,6 +165,15 @@ function hasUsers(){return authSheet().getLastRow()>1;}
 function cleanUsername(v){const u=String(v||'').trim().toLowerCase();if(!/^[a-z0-9._-]{3,40}$/.test(u))throw new Error('아이디는 영문 소문자, 숫자, ., _, -로 3~40자여야 합니다.');return u;}
 function cleanPassword(v){const p=String(v||'');if(p.length<8||p.length>20)throw new Error('비밀번호는 8~20자여야 합니다.');return p;}
 function passwordHash(p,s){let v=s+':'+p;for(let i=0;i<2000;i++)v=Utilities.base64EncodeWebSafe(Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256,v,Utilities.Charset.UTF_8));return v;}
+function passwordMatches(p,user){
+ const fingerprint=Utilities.base64EncodeWebSafe(Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256,user.username+'\u0000'+user.hash+'\u0000'+p,Utilities.Charset.UTF_8));
+ const key='password-ok-v1:'+fingerprint;
+ let cache;
+ try{cache=CacheService.getScriptCache();if(cache.get(key)==='1')return true;}catch{}
+ const valid=passwordHash(p,user.salt)===user.hash;
+ if(valid)try{if(cache)cache.put(key,'1',21600);}catch{}
+ return valid;
+}
 function account(u,p,n,r){u=cleanUsername(u);p=cleanPassword(p);n=String(n||'').trim();if(!n)throw new Error('이름을 입력해 주세요.');if(ROLES.indexOf(r)<0)throw new Error('권한이 올바르지 않습니다.');const sh=authSheet(),rows=sh.getLastRow()>1?sh.getRange(2,1,sh.getLastRow()-1,7).getValues():[];if(rows.some(x=>String(x[0]).toLowerCase()===u))throw new Error('이미 존재하는 아이디입니다.');const salt=Utilities.getUuid();sh.appendRow([u,n,r,salt,passwordHash(p,salt),true,new Date().toISOString()]);return {username:u,name:n,role:r};}
 function setupAdmin(r){const lock=LockService.getScriptLock();lock.waitLock(10000);try{if(hasUsers())throw new Error('초기 관리자 설정이 완료되었습니다.');return {ok:true,user:account(r.username,r.password,r.name,'admin')};}finally{lock.releaseLock();}}
 function createUserPayload(r){return {ok:true,user:account(r.username,r.password,r.name,r.role)};}
@@ -197,7 +206,7 @@ function publicUser(u){return {username:u.username,name:u.name,role:u.role};}
 function loginPayload(r){
  const u=cleanUsername(r.username),p=cleanPassword(r.password),user=findUser(u);
  if(!user&&!hasUsers())return {ok:true,setupRequired:true};
- if(!user||!user.active||ROLES.indexOf(user.role)<0||passwordHash(p,user.salt)!==user.hash)throw new Error('아이디 또는 비밀번호가 올바르지 않습니다.');
+ if(!user||!user.active||ROLES.indexOf(user.role)<0||!passwordMatches(p,user))throw new Error('아이디 또는 비밀번호가 올바르지 않습니다.');
  // Hash verification does not hold up unrelated writes. Recheck under the
  // password-change lock before issuing a session to avoid using stale credentials.
  const lock=LockService.getScriptLock();lock.waitLock(10000);

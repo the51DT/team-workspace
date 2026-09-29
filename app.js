@@ -40,7 +40,7 @@ function previewSnapshot(){
 }
 let pendingRequests=0;
 function updateLoadingBar(delta){pendingRequests=Math.max(0,pendingRequests+delta);const bar=$('#loadingBar');if(!bar)return;const active=pendingRequests>0;bar.classList?.toggle('active',active);bar.setAttribute?.('aria-hidden',String(!active))}
-function requestTimeout(action){return ['login','setupAdmin','createUser','changePassword'].includes(action)?90000:60000;}
+function requestTimeout(action){return action==='login'?330000:['setupAdmin','createUser','changePassword'].includes(action)?90000:60000;}
 function requestError(error){
  if(['TimeoutError','AbortError'].includes(error.name)||/signal timed out/i.test(error.message))return new Error('서버 응답 시간이 초과되었습니다. 잠시 후 다시 시도해 주세요. 계정 생성 중이었다면 계정 목록을 먼저 확인해 주세요.');
  return error;
