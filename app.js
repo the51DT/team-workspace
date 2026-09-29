@@ -40,7 +40,7 @@ function previewSnapshot(){
 }
 let pendingRequests=0;
 function updateLoadingBar(delta){pendingRequests=Math.max(0,pendingRequests+delta);const bar=$('#loadingBar');if(!bar)return;const active=pendingRequests>0;bar.classList?.toggle('active',active);bar.setAttribute?.('aria-hidden',String(!active))}
-function requestTimeout(action){return action==='login'?330000:['setupAdmin','createUser','changePassword'].includes(action)?90000:60000;}
+function requestTimeout(action){return ['login','loginContinue','setupAdmin','createUser','changePassword'].includes(action)?90000:60000;}
 function requestError(error){
  if(['TimeoutError','AbortError'].includes(error.name)||/signal timed out/i.test(error.message))return new Error('서버 응답 시간이 초과되었습니다. 잠시 후 다시 시도해 주세요. 계정 생성 중이었다면 계정 목록을 먼저 확인해 주세요.');
  return error;
@@ -414,10 +414,10 @@ async function publicRequest(payload){
 }
 
 const AUTH_USER_KEY='workflow-auth-user';
-function storeAuthUser(user){try{localStorage.setItem(AUTH_USER_KEY,JSON.stringify(user));}catch{}}
+function storeAuthUser(user){try{sessionStorage.setItem(AUTH_USER_KEY,JSON.stringify(user));}catch{}}
 function clearAuthSession(){try{localStorage.removeItem('workflow-auth-token');localStorage.removeItem(AUTH_USER_KEY);sessionStorage.removeItem('workflow-auth-token');sessionStorage.removeItem(AUTH_USER_KEY);}catch{}authToken='';currentUser=null;serverConnected=false;}
 async function initAuth(){
- try{authToken=localStorage.getItem('workflow-auth-token')||sessionStorage.getItem('workflow-auth-token')||'';}catch{}
+ try{authToken=sessionStorage.getItem('workflow-auth-token')||'';localStorage.removeItem('workflow-auth-token');localStorage.removeItem(AUTH_USER_KEY);}catch{}
  if(!authToken){openLogin();return;}
  const token=authToken;restoringAuth=true;currentUser={name:'로그인 확인 중'};
  showAuthenticated();applyPermissions(false);
@@ -428,7 +428,6 @@ async function initAuth(){
   const result=await requestServer({action:'session'});
   if(authToken!==token)return;
   currentUser=result.user;restoringAuth=false;storeAuthUser(currentUser);
-  try{localStorage.setItem('workflow-auth-token',authToken);}catch{}
   applyPermissions();if(loading)lockControls(true);
  }catch(error){
   if(authToken!==token)return;
@@ -462,7 +461,7 @@ function openLogin(){closeGuide();
 }
 $$('[data-login]').forEach(el=>el.onclick=openLogin);
 
-$("#authForm").onsubmit=async(event)=>{event.preventDefault();$("#authError").textContent="로그인 정보를 확인하고 있습니다…";$("#loginSubmit").disabled=true;try{if(setupRequired){await publicRequest({action:"setupAdmin",username:$("#loginUsername").value,password:$("#loginPassword").value,name:$("#loginName").value,});setupRequired=false;}const result=await publicRequest({action:"login",username:$("#loginUsername").value,password:$("#loginPassword").value,});if(result.setupRequired){setupRequired=true;configureLogin();$('#loginName').focus();return;}authToken=result.token;currentUser=result.user;restoringAuth=false;try{localStorage.setItem("workflow-auth-token",authToken);}catch{}storeAuthUser(currentUser);showAuthenticated();applyPermissions(false);await restoreRoute();}catch(error){$("#authError").textContent=error.message;}finally{$("#loginSubmit").disabled=false;}};
+$("#authForm").onsubmit=async(event)=>{event.preventDefault();$("#authError").textContent="로그인 정보를 확인하고 있습니다… (0/10)";$("#loginSubmit").disabled=true;try{if(setupRequired){await publicRequest({action:"setupAdmin",username:$("#loginUsername").value,password:$("#loginPassword").value,name:$("#loginName").value,});setupRequired=false;}let result=await publicRequest({action:"login",username:$("#loginUsername").value,password:$("#loginPassword").value,});while(result.pending){$("#authError").textContent=`로그인 정보를 확인하고 있습니다… (${result.step}/${result.total})`;result=await publicRequest({action:"loginContinue",challenge:result.challenge});}if(result.setupRequired){setupRequired=true;configureLogin();$('#loginName').focus();return;}authToken=result.token;currentUser=result.user;restoringAuth=false;try{sessionStorage.setItem("workflow-auth-token",authToken);}catch{}storeAuthUser(currentUser);showAuthenticated();applyPermissions(false);await restoreRoute();}catch(error){$("#authError").textContent=error.message;}finally{$("#loginSubmit").disabled=false;}};
 $$("[data-logout]").forEach(el=>el.onclick=async()=>{try{await requestServer({action:"logout"});}catch{}clearAuthSession();location.reload();});
 let passwordChanging=false;
 $$('[data-password]').forEach(el=>el.onclick=()=>{

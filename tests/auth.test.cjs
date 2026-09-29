@@ -76,6 +76,18 @@ test('login identifies initial setup without a separate status request',()=>{
  assert.ok(app.run("loginPayload({username:'admin',password:'password1'}).token"));
 });
 
+test('web login verifies the existing hash in ten resumable steps without caching plaintext',()=>{
+ const app=harness();setupAdmin(app);
+ let result=app.run("loginChunkPayload({username:'admin',password:'password1'})");
+ assert.equal(result.step,1);assert.equal(result.total,10);
+ const cached=app.cache.get('login-challenge-v1:'+result.challenge);
+ assert.ok(cached);assert.equal(cached.includes('password1'),false);
+ let requests=1;
+ while(result.pending){result=app.run('loginChunkPayload({challenge:'+JSON.stringify(result.challenge)+'})');requests++;}
+ assert.equal(requests,10);assert.ok(result.token);
+ assert.ok(app.run("loginChunkPayload({username:'admin',password:'password1'}).token"));
+});
+
 test('existing workspace reads do not wait for the write lock',()=>{
  const app=harness();app.run("loadPayload('cx')");
  app.run("LockService.getScriptLock=()=>({waitLock(){throw Error('writer busy')},releaseLock(){}})");
@@ -149,11 +161,13 @@ test('password change verifies current password, updates only the session owner 
 });
 
 
-test('password bounds and persistent sessions enforce new policy',()=>{
+test('password bounds and 24-hour sessions enforce the expiry policy',()=>{
  const app=harness();for(const n of [7,21,100])assert.throws(()=>app.run('cleanPassword('+JSON.stringify('a'.repeat(n))+')'));
  for(const n of [8,20])assert.equal(app.run('cleanPassword('+JSON.stringify('a'.repeat(n))+')').length,n);
- setupAdmin(app);const session=app.run("loginPayload({username:'admin',password:'password1'})");assert.equal(session.expiresAt,'');
- app.run('Date=class extends Date {static now(){return 4102444800000}}');assert.equal(app.run('requireSession('+JSON.stringify(session.token)+').role'),'admin');
+ setupAdmin(app);const before=Date.now(),session=app.run("loginPayload({username:'admin',password:'password1'})"),expires=new Date(session.expiresAt).getTime();
+ assert.ok(expires-before>=24*3600000-1000&&expires-before<=24*3600000+1000);
+ assert.equal(app.run('requireSession('+JSON.stringify(session.token)+').role'),'admin');
+ app.run('Date=class extends Date {static now(){return '+(expires+1)+'}}');assert.throws(()=>app.run('requireSession('+JSON.stringify(session.token)+')'));
  app.run('logoutPayload('+JSON.stringify(session.token)+')');assert.throws(()=>app.run('requireSession('+JSON.stringify(session.token)+')'));
 });
 
@@ -163,7 +177,8 @@ test('session lookup rejects partial, wrong-case, expired and disabled credentia
  for(const token of [session.token.slice(1),session.token.toUpperCase(),'.*'])assert.throws(()=>app.run('requireSession('+JSON.stringify(token)+')'));
  const sheet=app.sheets.get('웹앱_세션');sheet.rows[1][2]='2000-01-01';
  assert.throws(()=>app.run('requireSession('+JSON.stringify(session.token)+')'));
- sheet.rows[1][2]='';app.sheets.get('웹앱_계정').rows[1][5]=false;
+ sheet.rows[1][2]='';assert.throws(()=>app.run('requireSession('+JSON.stringify(session.token)+')'));
+ app.sheets.get('웹앱_계정').rows[1][5]=false;
  assert.throws(()=>app.run('requireSession('+JSON.stringify(session.token)+')'));
 });
 test('login hashes outside the write lock and rechecks credentials before issuing a session',()=>{

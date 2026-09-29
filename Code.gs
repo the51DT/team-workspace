@@ -2,7 +2,7 @@ const DATA_SHEETS = {cx:'웹앱_CX_업무데이터', enterprise:'웹앱_기업_�
 const WORKER_SHEETS = {cx:'웹앱_CX_작업자', enterprise:'웹앱_기업_작업자', aldot:'웹앱_알닷_작업자'};
 const LEDGER_SHEETS = {cx:'웹앱_CX_업무대장', enterprise:'웹앱_기업_업무대장', aldot:'웹앱_알닷_업무대장'};
 const AUTH_SHEET='웹앱_계정', SESSION_SHEET='웹앱_세션', AUDIT_SHEET='웹앱_수정이력';
-const ROLES=['admin','editor'];
+const ROLES=['admin','editor'], SESSION_HOURS=24;
 function workspaceKey(value){const key=value||'cx';if(!Object.prototype.hasOwnProperty.call(DATA_SHEETS,key))throw new Error('지원하지 않는 업무 공간입니다.');return key}
 
 function doGet(){return jsonResponse({ok:false,error:'로그인이 필요합니다. 인증된 POST 요청을 사용해 주세요.'});}
@@ -14,7 +14,7 @@ function doPost(e) {
     const request=JSON.parse((e&&e.postData&&e.postData.contents)||'{}');
     if(request.action==='authStatus')return jsonResponse({ok:true,setupRequired:!hasUsers()});
     if(request.action==='setupAdmin')return jsonResponse(setupAdmin(request));
-    if(request.action==='login')return jsonResponse(loginPayload(request));
+    if(request.action==='login'||request.action==='loginContinue')return jsonResponse(loginChunkPayload(request));
 
     const user=requireSession(request.token);
     if(request.action==='loadAudit')return jsonResponse(loadAuditPayload(request.workspace,request.cursor));
@@ -164,10 +164,11 @@ function auditSheet(){return hiddenSheet(AUDIT_SHEET,['시각','아이디','이�
 function hasUsers(){return authSheet().getLastRow()>1;}
 function cleanUsername(v){const u=String(v||'').trim().toLowerCase();if(!/^[a-z0-9._-]{3,40}$/.test(u))throw new Error('아이디는 영문 소문자, 숫자, ., _, -로 3~40자여야 합니다.');return u;}
 function cleanPassword(v){const p=String(v||'');if(p.length<8||p.length>20)throw new Error('비밀번호는 8~20자여야 합니다.');return p;}
-function passwordHash(p,s){let v=s+':'+p;for(let i=0;i<2000;i++)v=Utilities.base64EncodeWebSafe(Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256,v,Utilities.Charset.UTF_8));return v;}
+function advancePasswordHash(value,iterations){for(let i=0;i<iterations;i++)value=Utilities.base64EncodeWebSafe(Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256,value,Utilities.Charset.UTF_8));return value;}
+function passwordHash(p,s){return advancePasswordHash(s+':'+p,2000);}
+function passwordFingerprint(p,user){return 'password-ok-v1:'+Utilities.base64EncodeWebSafe(Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256,user.username+'\u0000'+user.hash+'\u0000'+p,Utilities.Charset.UTF_8));}
 function passwordMatches(p,user){
- const fingerprint=Utilities.base64EncodeWebSafe(Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256,user.username+'\u0000'+user.hash+'\u0000'+p,Utilities.Charset.UTF_8));
- const key='password-ok-v1:'+fingerprint;
+ const key=passwordFingerprint(p,user);
  let cache;
  try{cache=CacheService.getScriptCache();if(cache.get(key)==='1')return true;}catch{}
  const valid=passwordHash(p,user.salt)===user.hash;
@@ -203,25 +204,51 @@ function findUser(u){
  return row?{username:String(row[0]),name:String(row[1]),role:String(row[2]),salt:String(row[3]),hash:String(row[4]),active:row[5]===true||String(row[5]).toLowerCase()==='true'}:null;
 }
 function publicUser(u){return {username:u.username,name:u.name,role:u.role};}
+function issueLoginSession(user){
+ const lock=LockService.getScriptLock();lock.waitLock(10000);
+ try{
+  const latest=findUser(user.username);
+  if(!latest||!latest.active||ROLES.indexOf(latest.role)<0||latest.hash!==user.hash||latest.salt!==user.salt)throw new Error('계정 정보가 변경되었습니다. 다시 로그인해 주세요.');
+  const token=Utilities.getUuid()+Utilities.getUuid().replace(/-/g,''),expires=new Date(Date.now()+SESSION_HOURS*3600000).toISOString();
+  sessionSheet().appendRow([token,user.username,expires]);
+  return {ok:true,token:token,user:publicUser(latest),expiresAt:expires};
+ }finally{lock.releaseLock();}
+}
 function loginPayload(r){
  const u=cleanUsername(r.username),p=cleanPassword(r.password),user=findUser(u);
  if(!user&&!hasUsers())return {ok:true,setupRequired:true};
  if(!user||!user.active||ROLES.indexOf(user.role)<0||!passwordMatches(p,user))throw new Error('아이디 또는 비밀번호가 올바르지 않습니다.');
- // Hash verification does not hold up unrelated writes. Recheck under the
- // password-change lock before issuing a session to avoid using stale credentials.
- const lock=LockService.getScriptLock();lock.waitLock(10000);
- try{
-  const latest=findUser(u);
-  if(!latest||!latest.active||ROLES.indexOf(latest.role)<0||latest.hash!==user.hash||latest.salt!==user.salt)throw new Error('계정 정보가 변경되었습니다. 다시 로그인해 주세요.');
-  const token=Utilities.getUuid()+Utilities.getUuid().replace(/-/g,''),expires='';
-  sessionSheet().appendRow([token,u,expires]);
-  return {ok:true,token:token,user:publicUser(latest),expiresAt:expires};
- }finally{lock.releaseLock();}
+ return issueLoginSession(user);
+}
+const LOGIN_HASH_STEPS=10, LOGIN_HASH_ITERATIONS=200;
+function loginChunkPayload(r){
+ const cache=CacheService.getScriptCache();let challenge,state,key,user;
+ if(!r.challenge){
+  const u=cleanUsername(r.username),p=cleanPassword(r.password);user=findUser(u);
+  if(!user&&!hasUsers())return {ok:true,setupRequired:true};
+  if(!user||!user.active||ROLES.indexOf(user.role)<0)throw new Error('아이디 또는 비밀번호가 올바르지 않습니다.');
+  const verifiedKey=passwordFingerprint(p,user);
+  try{if(cache.get(verifiedKey)==='1')return issueLoginSession(user);}catch{}
+  challenge=Utilities.getUuid()+Utilities.getUuid().replace(/-/g,'');key='login-challenge-v1:'+challenge;
+  // Hash the password before persisting state. Cache never receives plaintext.
+  state={username:user.username,salt:user.salt,hash:user.hash,value:advancePasswordHash(user.salt+':'+p,LOGIN_HASH_ITERATIONS),step:1,verifiedKey:verifiedKey};
+ }else{
+  challenge=String(r.challenge);key='login-challenge-v1:'+challenge;
+  const raw=cache.get(key);if(!raw)throw new Error('로그인 확인 시간이 만료되었습니다. 다시 로그인해 주세요.');
+  state=JSON.parse(raw);user=findUser(state.username);
+  if(!user||!user.active||user.hash!==state.hash||user.salt!==state.salt)throw new Error('계정 정보가 변경되었습니다. 다시 로그인해 주세요.');
+  state.value=advancePasswordHash(state.value,LOGIN_HASH_ITERATIONS);state.step++;
+ }
+ if(state.step<LOGIN_HASH_STEPS){cache.put(key,JSON.stringify(state),600);return {ok:true,pending:true,challenge:challenge,step:state.step,total:LOGIN_HASH_STEPS};}
+ cache.remove(key);
+ if(state.value!==state.hash)throw new Error('아이디 또는 비밀번호가 올바르지 않습니다.');
+ try{cache.put(state.verifiedKey,'1',21600);}catch{}
+ return issueLoginSession(user);
 }
 function requireSession(token){
  token=String(token||'');if(!token)throw new Error('로그인이 필요합니다.');
  const row=findAuthRow(sessionSheet(),'session',token,3,false);
- if(row&&(!row[2]||new Date(row[2]).getTime()>Date.now())){
+ if(row&&row[2]&&new Date(row[2]).getTime()>Date.now()){
   const user=findUser(String(row[1]).toLowerCase());
   if(user&&user.active&&ROLES.indexOf(user.role)>=0)return user;
  }

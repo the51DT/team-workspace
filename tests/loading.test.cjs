@@ -10,7 +10,7 @@ function app(handler,storage=new Map(),hash='#cx',guest=false){
   const element=id=>{if(!elements.has(id))elements.set(id,{value:['#worker','#status'].includes(id)?'all':'',innerHTML:'',textContent:'',classList:{active:false,toggle(_name,on){this.active=on}},addEventListener(){},setAttribute(){},focus(){}});return elements.get(id)};
   const context=vm.createContext({window:{location,history:{pushState:navigate,replaceState:navigate},addEventListener(){},APPS_SCRIPT_URL:'https://example.test/exec',WORKERS:['작업자 A']},URL,AbortSignal,console,
     fetch:async(url,options)=>{const payload=options.method==='GET'?Object.fromEntries(new URL(url).searchParams):JSON.parse(options.body);requests.push({url,payload,method:options.method,headers:options.headers});const result=await handler(payload);return {ok:true,json:async()=>result}},
-    localStorage:{getItem:key=>storage.get(key)??null,setItem:(key,value)=>storage.set(key,value),removeItem:key=>storage.delete(key)},alert(){},confirm:()=>true,requestAnimationFrame:fn=>fn(),setTimeout,
+    localStorage:{getItem:key=>storage.get(key)??null,setItem:(key,value)=>storage.set(key,value),removeItem:key=>storage.delete(key)},sessionStorage:{getItem:key=>storage.get(key)??null,setItem:(key,value)=>storage.set(key,value),removeItem:key=>storage.delete(key)},alert(){},confirm:()=>true,requestAnimationFrame:fn=>fn(),setTimeout,
     document:{querySelector:element,querySelectorAll:()=>[],...(guest?{getElementById:element}:{})}});
   const ready=vm.runInContext(guest?source:source.replace("let authToken=''","let authToken='test-session'"),context);
   return {ready,requests,element,run:code=>vm.runInContext(code,context)};
@@ -159,6 +159,15 @@ test('opening login is immediate and login submits without an auth status reques
  assert.equal(page.element('#nameField').hidden,false);assert.equal(page.element('#loginSubmit').textContent,'관리자 생성');
 });
 
+test('login follows ten server verification steps and shows progress',async()=>{
+ let step=0;
+ const page=app(payload=>payload.action==='login'||payload.action==='loginContinue'?(++step<10?{ok:true,pending:true,challenge:'challenge',step,total:10}:{ok:true,token:'token',user:{name:'관리자',role:'admin'}}):({ok:true,tasks:[]}),new Map(),'',true);
+ await page.ready;page.element('#loginUsername').value='admin';page.element('#loginPassword').value='password1';
+ await page.element('#authForm').onsubmit({preventDefault(){}});
+ assert.equal(step,10);assert.equal(page.run('authToken'),'token');
+ assert.equal(page.requests.filter(request=>['login','loginContinue'].includes(request.payload.action)).length,10);
+});
+
 test('home and workspace both expose logout controls',()=>{
  const html=fs.readFileSync(require('node:path').join(__dirname,'../index.html'),'utf8');
  assert.equal((html.match(/data-logout/g)||[]).length,2);
@@ -198,7 +207,7 @@ test('login timeout gives a readable message and allows retry without automatic 
  const page=app(()=>{throw timeoutError()},new Map(),'',true);await page.ready;
  await page.element('#authForm').onsubmit({preventDefault(){}});
  assert.match(page.element('#authError').textContent,/서버 응답 시간이 초과/);assert.equal(page.element('#loginSubmit').disabled,false);
- assert.equal(page.requests.length,1);assert.equal(page.run("requestTimeout('login')"),330000);
+ assert.equal(page.requests.length,1);assert.equal(page.run("requestTimeout('login')"),90000);
 });
 
 test('account list timeout is shown inside dialog and duplicate clicks share the active attempt',async()=>{
