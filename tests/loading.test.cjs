@@ -159,13 +159,13 @@ test('opening login is immediate and login submits without an auth status reques
  assert.equal(page.element('#nameField').hidden,false);assert.equal(page.element('#loginSubmit').textContent,'관리자 생성');
 });
 
-test('login follows ten server verification steps and shows progress',async()=>{
+test('login follows five server verification steps and shows progress',async()=>{
  let step=0;
- const page=app(payload=>payload.action==='login'||payload.action==='loginContinue'?(++step<10?{ok:true,pending:true,challenge:'challenge',step,total:10}:{ok:true,token:'token',user:{name:'관리자',role:'admin'}}):({ok:true,tasks:[]}),new Map(),'',true);
+ const page=app(payload=>payload.action==='login'||payload.action==='loginContinue'?(++step<5?{ok:true,pending:true,challenge:'challenge',step,total:5}:{ok:true,token:'token',user:{name:'관리자',role:'admin'}}):({ok:true,tasks:[]}),new Map(),'',true);
  await page.ready;page.element('#loginUsername').value='admin';page.element('#loginPassword').value='password1';
  await page.element('#authForm').onsubmit({preventDefault(){}});
- assert.equal(step,10);assert.equal(page.run('authToken'),'token');
- assert.equal(page.requests.filter(request=>['login','loginContinue'].includes(request.payload.action)).length,10);
+ assert.equal(step,5);assert.equal(page.run('authToken'),'token');
+ assert.equal(page.requests.filter(request=>['login','loginContinue'].includes(request.payload.action)).length,5);
 });
 
 test('home and workspace both expose logout controls',()=>{

@@ -76,15 +76,15 @@ test('login identifies initial setup without a separate status request',()=>{
  assert.ok(app.run("loginPayload({username:'admin',password:'password1'}).token"));
 });
 
-test('web login verifies the existing hash in ten resumable steps without caching plaintext',()=>{
+test('web login verifies the existing hash in five resumable steps without caching plaintext',()=>{
  const app=harness();setupAdmin(app);
  let result=app.run("loginChunkPayload({username:'admin',password:'password1'})");
- assert.equal(result.step,1);assert.equal(result.total,10);
+ assert.equal(result.step,1);assert.equal(result.total,5);
  const cached=app.cache.get('login-challenge-v1:'+result.challenge);
  assert.ok(cached);assert.equal(cached.includes('password1'),false);
  let requests=1;
  while(result.pending){result=app.run('loginChunkPayload({challenge:'+JSON.stringify(result.challenge)+'})');requests++;}
- assert.equal(requests,10);assert.ok(result.token);
+ assert.equal(requests,5);assert.ok(result.token);
  assert.ok(app.run("loginChunkPayload({username:'admin',password:'password1'}).token"));
 });
 

@@ -220,7 +220,7 @@ function loginPayload(r){
  if(!user||!user.active||ROLES.indexOf(user.role)<0||!passwordMatches(p,user))throw new Error('아이디 또는 비밀번호가 올바르지 않습니다.');
  return issueLoginSession(user);
 }
-const LOGIN_HASH_STEPS=10, LOGIN_HASH_ITERATIONS=200;
+const LOGIN_HASH_STEPS=5, LOGIN_HASH_ITERATIONS=400;
 function loginChunkPayload(r){
  const cache=CacheService.getScriptCache();let challenge,state,key,user;
  if(!r.challenge){
