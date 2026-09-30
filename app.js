@@ -3,7 +3,7 @@ let currentWorkspace='cx';
 let homeVisible=true;
 const workspaceDrafts=new Map();
 const pendingLedgerMonths=new Map();
-function storageKey(key){return currentWorkspace==='cx'?key:currentWorkspace+':'+key}
+function storageKey(key,workspace=currentWorkspace){return workspace==='cx'?key:workspace+':'+key}
 const statusClasses={"배정":"status-assigned","진행중":"status-in-progress","내부검수":"status-internal-review","검수요청":"status-review-requested","반영대기":"status-pending-release","완료":"status-completed","취소":"status-cancelled","보류":"status-on-hold"};
 const statusClass=value=>Object.hasOwn(statusClasses,value)?statusClasses[value]:'';
 const statuses=['배정','진행중','내부검수','검수요청','반영대기','완료','취소','보류'],KEY='cx-workflow-edits-v5';
@@ -28,6 +28,7 @@ function normalize(row){
 }
 function snapshotKey(workspace=currentWorkspace){return 'workflow-snapshot-v1:'+window.APPS_SCRIPT_URL+':'+workspace}
 function cacheSnapshot(tasks,workspace=currentWorkspace){try{localStorage.setItem(snapshotKey(workspace),JSON.stringify({tasks,savedAt:Date.now()}))}catch{}}
+function clearCachedWorkspaceData(){for(const workspace of Object.keys(workspaceNames)){try{localStorage.removeItem(snapshotKey(workspace));localStorage.removeItem(storageKey(KEY,workspace));}catch{}}}
 function previewSnapshot(){
  if(restoringAuth)return false;
  if(data.length)return false;
@@ -425,6 +426,7 @@ async function publicRequest(payload){
 }
 
 const AUTH_USER_KEY='workflow-auth-user';
+
 function storeAuthUser(user){try{localStorage.setItem(AUTH_USER_KEY,JSON.stringify(user));}catch{}}
 function persistAuthToken(token){
  try{localStorage.setItem('workflow-auth-token',token);}catch{try{sessionStorage.setItem('workflow-auth-token',token);}catch{}return;}
@@ -436,11 +438,10 @@ function readAuthToken(){
  if(token)persistAuthToken(token);
  return token;
 }
-function clearAuthSession(){for(const storage of [localStorage,sessionStorage]){try{storage.removeItem('workflow-auth-token');storage.removeItem(AUTH_USER_KEY);}catch{}}authToken='';currentUser=null;serverConnected=false;}
+function clearAuthSession(){for(const storage of [localStorage,sessionStorage]){try{storage.removeItem('workflow-auth-token');storage.removeItem(AUTH_USER_KEY);}catch{}}clearCachedWorkspaceData();authToken='';currentUser=null;serverConnected=false;}
 async function initAuth(){
  authToken=readAuthToken();
- if(!authToken){openLogin();return;}
- const token=authToken;restoringAuth=true;currentUser={name:'로그인 확인 중'};
+ if(!authToken){clearCachedWorkspaceData();openLogin();return;} const token=authToken;restoringAuth=true;currentUser={name:'로그인 확인 중'};
  showAuthenticated();applyPermissions(false);
  // A workspace load already validates the session and returns the user.
  if(Object.hasOwn(workspaceNames,window.location.hash.slice(1))){await restoreRoute();return;}

@@ -610,3 +610,30 @@ test('select option reuse preserves row bindings, selection and escaping',async(
  const other=page.run('selectCell("<B>",1,2,["","A","<B>"],"worker-select",optionCache)');
  assert.match(other,/<option selected>&lt;B&gt;/);assert.equal(page.run('optionCache.size'),2);
 });
+
+test('logging out removes cached task data and drafts for every workspace',async()=>{
+ const snapshot=key=>'workflow-snapshot-v1:https://example.test/exec:'+key;
+ const storage=new Map([
+  [snapshot('enterprise'),JSON.stringify({tasks:[task]})],
+  [snapshot('aldot'),JSON.stringify({tasks:[task]})],
+  ['cx-workflow-edits-v5','{"0:5":"임시 제목"}'],
+  ['enterprise:cx-workflow-edits-v5','{"0:5":"임시 제목"}'],
+  ['aldot:cx-workflow-edits-v5','{"0:5":"임시 제목"}']
+ ]);
+ const page=app(()=>({ok:true,tasks:[task]}),storage);await page.ready;
+ assert.match(storage.get(snapshot('cx')),/업무 제목/);
+ page.run('clearAuthSession()');
+ for(const key of ['cx','enterprise','aldot']){
+  assert.equal(storage.get(snapshot(key)),undefined);
+  assert.equal(storage.get(key==='cx'?'cx-workflow-edits-v5':key+':cx-workflow-edits-v5'),undefined);
+ }
+});
+
+test('entering without a session token clears leftover cached task data',async()=>{
+ const key='workflow-snapshot-v1:https://example.test/exec:cx';
+ const storage=new Map([[key,JSON.stringify({tasks:[task]})]]);
+ const page=app(()=>({ok:true,tasks:[task]}),storage,'#cx',true);
+ await nextTurn();
+ assert.equal(storage.get(key),undefined);
+ assert.equal(page.requests.length,0);
+});
