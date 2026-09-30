@@ -6,7 +6,7 @@ const pendingLedgerMonths=new Map();
 function storageKey(key){return currentWorkspace==='cx'?key:currentWorkspace+':'+key}
 const statusClasses={"배정":"status-assigned","진행중":"status-in-progress","내부검수":"status-internal-review","검수요청":"status-review-requested","반영대기":"status-pending-release","완료":"status-completed","취소":"status-cancelled","보류":"status-on-hold"};
 const statusClass=value=>Object.hasOwn(statusClasses,value)?statusClasses[value]:'';
-const statuses=['배정','진행중','내부검수','검수요청','반영대기','완료','취소','보류'],KEY='cx-workflow-edits-v5';
+const statuses=['배정','진행중','내부검수','검수요청','반영대기','완료','취소','보류'];
 let workers=[];
 function visibleWorkers(){return workers}
 let serverConnected=false;
@@ -26,18 +26,18 @@ function normalize(row){
   values[3]=values[3]==='진행'?'진행중':values[3]==='이월'?'취소':values[3];
   return values;
 }
-function snapshotKey(workspace=currentWorkspace){return 'workflow-snapshot-v1:'+window.APPS_SCRIPT_URL+':'+workspace}
-function cacheSnapshot(tasks,workspace=currentWorkspace){try{localStorage.setItem(snapshotKey(workspace),JSON.stringify({tasks,savedAt:Date.now()}))}catch{}}
-function previewSnapshot(){
- if(restoringAuth)return false;
- if(data.length)return false;
- try{
-  const cached=JSON.parse(localStorage.getItem(snapshotKey()));
-  if(!cached||!Array.isArray(cached.tasks))return false;
-  data=cached.tasks.map(normalize);
-  workers=[...new Set([...workers,...data.map(r=>r[2])].filter(Boolean))];
-  filters();render();return true;
- }catch{return false}
+const HOSTED_APP_URL='https://the51dt.github.io/team-workspace/';
+function isHostedApp(){try{return ['http:','https:'].includes(new URL(window.location.href||window.location.origin).protocol);}catch{return false;}}
+function clearLegacyDataCache(){
+ for(const getStorage of [()=>localStorage,()=>sessionStorage])try{
+  const storage=getStorage();
+  for(let i=storage.length-1;i>=0;i--){const key=storage.key(i);if(key&&(key.startsWith('workflow-snapshot-')||/^(?:(?:enterprise|aldot):)?cx-workflow-edits-v\d+$/.test(key)))storage.removeItem(key);}
+ }catch{}
+}
+function showHostedOnly(){
+ $('#authPage').hidden=false;$('#homePage').hidden=true;$('#workspacePage').hidden=true;$('#authForm').hidden=true;
+ $('#authTitle').textContent='로컬 서버 또는 배포 사이트에서 접속해 주세요';
+ $('#authDescription').textContent='file://로 직접 연 HTML에서는 업무 데이터를 조회할 수 없습니다. localhost·127.0.0.1의 로컬 서버 또는 배포 사이트를 이용해 주세요. '+HOSTED_APP_URL;
 }
 let pendingRequests=0;
 function updateLoadingBar(delta){pendingRequests=Math.max(0,pendingRequests+delta);const bar=$('#loadingBar');if(!bar)return;const active=pendingRequests>0;bar.classList?.toggle('active',active);bar.setAttribute?.('aria-hidden',String(!active))}
@@ -57,6 +57,7 @@ function requestServer(payload){
 }
 // Shared transport for both login and authenticated API requests.
 async function postJson(payload){
+ if(!isHostedApp())throw new Error('file:// 직접 실행에서는 업무 데이터를 조회할 수 없습니다. HTTP(S) 로컬 서버 또는 배포 사이트로 접속해 주세요.');
  const startedAt=Date.now();
  if(!window.APPS_SCRIPT_URL)throw new Error('config.js에 Apps Script 웹 앱 URL을 설정해 주세요.');
  updateLoadingBar(1);
@@ -109,8 +110,7 @@ async function load(){
 
   $('#refresh').textContent='…';
   $('#refresh').setAttribute('aria-busy','true');
-  const preview=previewSnapshot();
-  $('#saveStatus').textContent=preview?'● 이전 조회 목록 표시 중 · 최신 데이터 확인 중…':'● 최신 업무를 불러오는 중…';
+  $('#saveStatus').textContent='● 최신 업무를 불러오는 중…';
   try{
     let result;
     try{result=await requestServer({action:'load'})}
@@ -125,7 +125,6 @@ async function load(){
     }
     if(!Array.isArray(result.tasks))throw new Error('load 응답에 tasks가 없습니다. 제공하신 Apps Script 코드를 새 버전으로 배포해 주세요.');
     const rows=result.tasks.map(normalize);
-    cacheSnapshot(result.tasks,workspace);
     if(version!==loadVersion)return;
     data=rows;newRows.clear();edits={};deleteMode=false;
     $('#deleteToggle').textContent='삭제';
@@ -165,8 +164,7 @@ async function saveAll(){
     }
     const result=await requestServer({action:'save',tasks});
     pendingLedgerMonths.delete(currentWorkspace);
-    data=orderedRows.map((row,i)=>[tasks[i][0],...row.slice(1)]);newRows.clear();edits={};try{localStorage.removeItem(storageKey(KEY))}catch{}
-    cacheSnapshot(tasks);
+    data=orderedRows.map((row,i)=>[tasks[i][0],...row.slice(1)]);newRows.clear();edits={};
     $('#saveStatus').textContent='● Apps Script 저장 완료';
     render();return true;
   }catch(error){const reason=error.name==='TimeoutError'?'서버 응답 시간이 초과되었습니다. 입력 내용은 유지되어 있습니다.':error.message;$('#saveStatus').textContent='● 저장 실패: '+reason;alert('저장 실패: '+reason);return false}
@@ -251,7 +249,7 @@ function dateCell(v,r,c=4){const value=dateValue(v);return `<td class="date-cell
 function parsedHours(value){const normalized=String(value??"").trim().replace(",",".").replace(/\s*h(?:ours?)?$/i,"");const hours=Number(normalized);return Number.isFinite(hours)?hours:0;}
 function renderWorkSummary(rows){const totals=new Map();rows.forEach(({r})=>{const worker=String(r[2]||"").trim();if(worker)totals.set(worker,(totals.get(worker)||0)+parsedHours(r[9]));});const order=[...new Set([...visibleWorkers(),...totals.keys()])].filter(name=>totals.has(name));const summary=$("#workSummary");summary.hidden=!order.length;summary.innerHTML=order.map((name,index)=>{const total=totals.get(name);return`<article ${order.length===1?'id="publishingWorkSummary" ':""}class="summary-card summary-work-card" data-worker="${esc(name)}"><span class="summary-label">작업시간</span><strong class="worker-name">${esc(name)}</strong><div class="work-time-value"><strong class="publishing-total-hours">${esc(total.toFixed(3))}</strong><span class="hour-unit">h</span></div></article>`;}).join("");}
 function render(){document.querySelectorAll('[data-enterprise-column]').forEach(el=>el.hidden=currentWorkspace!=='enterprise');document.querySelectorAll('[data-adjustment-column]').forEach(el=>el.hidden=currentWorkspace!=='cx');const renderStartedAt=Date.now(),optionCache=new Map(),workerChoices=['',...new Set(visibleWorkers())],workerSet=new Set(workerChoices);let a=selected();renderWorkSummary(a);$("#rows").innerHTML=a.map(({r,i})=>`<tr data-index="${i}" class="${newRows.has(i)?"new-row":""}"><td class="locked">${deleteMode?`<input class="row-check" type="checkbox" data-check="${i}" aria-label="행 선택">`:esc(registrationLabel(r[0]))}</td>${rmsCell(r[1],i)}${selectCell(r[2],i,2,workerSet.has(r[2])?workerChoices:[...workerChoices,r[2]],"worker-select",optionCache)}${selectCell(r[12],i,12,['','기획','퍼블'],"work-type-select",optionCache)}${selectCell(r[3],i,3,statuses,"status-select",optionCache)}${currentWorkspace==='enterprise'?dateCell(r[11],i,11):''}${dateCell(r[4],i)}${cell(r[5],i,5,"task")}${cell(r[6],i,6)}${numberCell(r[9],i,9)}${currentWorkspace==='cx'?numberCell(r[10],i,10):''}</tr>`).join("");$("#count").textContent=`총 ${a.length}개의 업무`;bind();if(currentUser&&!canEdit()){$$("#rows input, #rows select").forEach(el=>el.disabled=true);$$("#rows [contenteditable]").forEach(el=>el.setAttribute("contenteditable","false"));}$$(".row-check").forEach((x)=>(x.onchange=updateDeleteButton));updateDeleteButton();window.lastRenderTiming={workspace:currentWorkspace,rows:a.length,elapsedMs:Date.now()-renderStartedAt};}
-function remember(r,c,v){data[r][c]=v;$('#saveStatus').textContent='● 변경사항 있음 · 저장 버튼을 눌러 주세요';if(!newRows.has(r)){edits[`${r}:${c}`]=v;try{localStorage.setItem(storageKey(KEY),JSON.stringify(edits))}catch{}}}
+function remember(r,c,v){data[r][c]=v;$('#saveStatus').textContent='● 변경사항 있음 · 저장 버튼을 눌러 주세요';if(!newRows.has(r)){edits[`${r}:${c}`]=v;}}
 function editableText(element){const text=element.innerText??element.textContent;return +element.dataset.col===6?text:text.trim()}
 function bind(){$$(".number-input").forEach((x)=>(x.oninput=()=>{remember(+x.dataset.row,+x.dataset.col,x.value);renderWorkSummary(selected());}));$$(".rms-input").forEach((x)=>(x.onchange=()=>{remember(+x.dataset.row,1,x.value.trim());render();}));$$(".date-input").forEach((x)=>{x.onfocus=()=>{if(x.type==='text'){x.type='date';try{x.showPicker?.()}catch{}}};x.onblur=()=>{if(!x.value)x.type='text'};x.onchange=()=>remember(+x.dataset.row,+(x.dataset.col||4),x.value)});$$("#rows [contenteditable]").forEach((x)=>{x.oninput=()=>remember(+x.dataset.row,+x.dataset.col,editableText(x));x.onkeydown=(e)=>{if(e.key==="Enter"&&!e.isComposing&&+x.dataset.col!==6){e.preventDefault();x.blur();}};x.onfocus=()=>(x.dataset.old=editableText(x));x.onblur=()=>{let v=editableText(x),r=+x.dataset.row,c=+x.dataset.col;if(v!==x.dataset.old){remember(r,c,v);x.classList.add("saved");setTimeout(()=>x.classList.remove("saved"),700);}};});$$(".cell-select").forEach((x)=>(x.onchange=()=>{let r=+x.dataset.row,c=+x.dataset.col,v=x.value;remember(r,c,v);if(c===3&&v==="진행중"&&!data[r][7])remember(r,7,nowText());if(c===3&&v==="완료")remember(r,8,nowText());render();}));}
 function addRow(){let d=new Date(),day=d.getFullYear()===selectedMonth.getFullYear()&&d.getMonth()===selectedMonth.getMonth()?d.getDate():1;data.push([`${selectedMonth.getFullYear()}-${String(selectedMonth.getMonth()+1).padStart(2,'0')}-${String(day).padStart(2,'0')}`,'','','배정','','','','','','','','','']);newRows.add(data.length-1);deleteMode=false;$('#saveStatus').textContent='● 새 업무 저장 필요';$('#search').value='';$('#worker').value='all';$('#status').value='all';render();requestAnimationFrame(()=>$('#rows tr:first-child .worker-select')?.focus())}
@@ -436,7 +434,7 @@ function readAuthToken(){
  if(token)persistAuthToken(token);
  return token;
 }
-function clearAuthSession(){for(const storage of [localStorage,sessionStorage]){try{storage.removeItem('workflow-auth-token');storage.removeItem(AUTH_USER_KEY);}catch{}}authToken='';currentUser=null;serverConnected=false;}
+function clearAuthSession(){for(const storage of [localStorage,sessionStorage]){try{storage.removeItem('workflow-auth-token');storage.removeItem(AUTH_USER_KEY);}catch{}}authToken='';currentUser=null;serverConnected=false;loadVersion++;loading=false;data=[];workers=[];edits={};newRows.clear();workspaceDrafts.clear();pendingLedgerMonths.clear();clearLegacyDataCache();$('#rows').innerHTML='';$('#workSummary').innerHTML='';historyEntries=[];$('#historyList').textContent='';}
 async function initAuth(){
  authToken=readAuthToken();
  if(!authToken){openLogin();return;}
@@ -535,4 +533,5 @@ $('#historyButton').onclick=async()=>{if(historyLoading)return;historyWorkspace=
 $('#historyMore').onclick=()=>fetchHistory(true);
 
 
-if(typeof document.getElementById==='function')initAuth();else restoreRoute();
+clearLegacyDataCache();
+if(!isHostedApp())showHostedOnly();else if(typeof document.getElementById==='function')initAuth();else restoreRoute();

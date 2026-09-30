@@ -3,14 +3,14 @@ const assert=require('node:assert/strict');
 const fs=require('node:fs');
 const vm=require('node:vm');
 const source=fs.readFileSync(require('node:path').join(__dirname,'../app.js'),'utf8');
-function app(handler,storage=new Map(),hash='#cx',guest=false,sessionStore=new Map()){
-  const location={hash,pathname:'/index.html',search:''};
+function app(handler,storage=new Map(),hash='#cx',guest=false,sessionStore=new Map(),origin='https://the51dt.github.io'){
+  const location={hash,origin,pathname:'/team-workspace/index.html',search:''};
   const navigate=(_state,_title,url)=>{location.hash=url.includes('#')?url.slice(url.indexOf('#')):''};
   const elements=new Map(),requests=[];
   const element=id=>{if(!elements.has(id))elements.set(id,{value:['#worker','#status'].includes(id)?'all':'',innerHTML:'',textContent:'',classList:{active:false,toggle(_name,on){this.active=on}},addEventListener(){},setAttribute(){},focus(){}});return elements.get(id)};
   const context=vm.createContext({window:{location,history:{pushState:navigate,replaceState:navigate},addEventListener(){},APPS_SCRIPT_URL:'https://example.test/exec',WORKERS:['작업자 A']},URL,AbortSignal,console,
     fetch:async(url,options)=>{const payload=options.method==='GET'?Object.fromEntries(new URL(url).searchParams):JSON.parse(options.body);requests.push({url,payload,method:options.method,headers:options.headers});const result=await handler(payload);return {ok:true,json:async()=>result}},
-    localStorage:{getItem:key=>storage.get(key)??null,setItem:(key,value)=>storage.set(key,value),removeItem:key=>storage.delete(key)},sessionStorage:{getItem:key=>sessionStore.get(key)??null,setItem:(key,value)=>sessionStore.set(key,value),removeItem:key=>sessionStore.delete(key)},alert(){},confirm:()=>true,requestAnimationFrame:fn=>fn(),setTimeout,
+    localStorage:{get length(){return storage.size},key:i=>[...storage.keys()][i]??null,getItem:key=>storage.get(key)??null,setItem:(key,value)=>storage.set(key,value),removeItem:key=>storage.delete(key)},sessionStorage:{get length(){return sessionStore.size},key:i=>[...sessionStore.keys()][i]??null,getItem:key=>sessionStore.get(key)??null,setItem:(key,value)=>sessionStore.set(key,value),removeItem:key=>sessionStore.delete(key)},alert(){},confirm:()=>true,requestAnimationFrame:fn=>fn(),setTimeout,
     document:{querySelector:element,querySelectorAll:()=>[],...(guest?{getElementById:element}:{})}});
   const ready=vm.runInContext(guest?source:source.replace("let authToken=''","let authToken='test-session'"),context);
   return {ready,requests,element,run:code=>vm.runInContext(code,context)};
@@ -117,21 +117,17 @@ test('initial page and refresh use the active tab',async()=>{
  page.run("selectTab('list')");await page.element('#refresh').onclick();assert.equal(page.run('currentTab'),'active');
 });
 
-test('cached preview is visible on failed reload but cannot be saved',async()=>{
- let fail=false;const page=app(()=>fail?{ok:false,error:'서버 일시 오류'}:{ok:true,tasks:[task]});await page.ready;
- page.run("cacheValue=JSON.stringify({tasks:[['9/19','123','작업자 A','배정','','캐시 업무','','','']]});localStorage.getItem=key=>key===snapshotKey()?cacheValue:null;data=[]");
- fail=true;await page.run('load()');assert.equal(page.run('data[0][5]'),'캐시 업무');assert.equal(page.run('serverConnected'),false);assert.equal(page.element('#saveAll').disabled,true);
- const before=page.requests.length;await page.run('saveAll()');assert.equal(page.requests.length,before);
- page.run("currentWorkspace='enterprise'");assert.match(page.run('snapshotKey()'),/:enterprise$/);
+test('legacy snapshots and edits are removed without clearing login or unrelated storage',async()=>{
+ const storage=new Map([['workflow-snapshot-v1:old:cx','private'],['enterprise:cx-workflow-edits-v5','draft'],['workflow-auth-token','token'],['unrelated','keep']]);
+ const page=app(()=>({ok:true,user:{name:'A',role:'admin'}}),storage,'',true);await page.ready;
+ assert.equal(storage.has('workflow-snapshot-v1:old:cx'),false);assert.equal(storage.has('enterprise:cx-workflow-edits-v5'),false);assert.equal(storage.get('workflow-auth-token'),'token');assert.equal(storage.get('unrelated'),'keep');
 });
-
-test('cached list is visible while fresh server data is still pending and saving stays disabled',async()=>{
- const storage=new Map([['workflow-snapshot-v1:https://example.test/exec:cx',JSON.stringify({tasks:[task]})]]);
- let resolve;const pending=new Promise(done=>resolve=done);
- const page=app(()=>pending,storage,'#cx');
- await nextTurn();
- assert.match(page.element('#rows').innerHTML,/업무 제목/);assert.equal(page.element('#saveAll').disabled,true);
- resolve({ok:true,workspace:'cx',tasks:[task]});await page.ready;
+test('stored tasks are never displayed while server data is pending',async()=>{
+ const storage=new Map([['workflow-snapshot-v1:old:cx',JSON.stringify({tasks:[task]})]]);
+ let resolve;const pending=new Promise(done=>resolve=done);const page=app(()=>pending,storage);await nextTurn();
+ assert.equal(page.run('data.length'),0);assert.doesNotMatch(page.element('#rows').innerHTML,/업무 제목/);
+ resolve({ok:true,tasks:[task]});await page.ready;page.run("remember(0,5,'edited')");
+ assert.equal(storage.size,0);
 });
 
 test('unauthenticated visitors cannot open home or workspaces',async()=>{
@@ -472,7 +468,6 @@ test('slow workspace response does not block navigation or overwrite the active 
  assert.equal(page.run('currentWorkspace'),'enterprise');assert.equal(page.run('serverConnected'),true);
  finishCx({ok:true,workspace:'cx',tasks:[task]});await page.ready;
  assert.equal(page.run('data.length'),0);assert.equal(page.run('serverConnected'),true);
- assert.match(page.run("localStorage.getItem(snapshotKey('cx'))"),/업무 제목/);
 });
 
 test('returning to a loading workspace reuses its pending request',async()=>{
@@ -609,4 +604,24 @@ test('select option reuse preserves row bindings, selection and escaping',async(
  assert.equal(page.run('optionCache.size'),1);
  const other=page.run('selectCell("<B>",1,2,["","A","<B>"],"worker-select",optionCache)');
  assert.match(other,/<option selected>&lt;B&gt;/);assert.equal(page.run('optionCache.size'),2);
+});
+
+test('file and unsupported origins cannot send any API requests',async()=>{
+ for(const origin of ['null','file:///C:/app/index.html','ftp://example.com']){
+  const page=app(()=>{throw Error('must not request')},new Map(),'#cx',true,new Map(),origin);await page.ready;
+  assert.equal(page.requests.length,0);assert.equal(page.element('#authForm').hidden,true);
+  for(const action of ['load','login','save'])await assert.rejects(page.run('postJson('+JSON.stringify({action})+')'),/직접 실행/);
+ }
+});
+test('localhost, loopback and static hosting permit authenticated requests',async()=>{
+ for(const origin of ['http://localhost:3000','http://127.0.0.1:8000','https://localhost:443','https://example.com','https://the51dt.github.io']){
+  const page=app(p=>({ok:true,workspace:p.workspace,tasks:[],user:{name:'A',role:'admin'}}),new Map([['workflow-auth-token','existing']]),'#cx',true,new Map(),origin);await page.ready;
+  assert.equal(page.requests.length,1);assert.equal(page.requests[0].payload.token,'existing');assert.equal(page.requests[0].method,'POST');
+  const guest=app(()=>{throw Error('must log in first')},new Map(),'#cx',true,new Map(),origin);await guest.ready;assert.equal(guest.requests.length,0);
+ }
+});
+
+test('logout clears in-memory tasks and drafts',async()=>{
+ const page=app(()=>({ok:true,tasks:[task]}));await page.ready;page.run("workspaceDrafts.set('cx',{data});clearAuthSession()");
+ assert.equal(page.run('data.length'),0);assert.equal(page.run('workspaceDrafts.size'),0);assert.equal(page.element('#rows').innerHTML,'');
 });
