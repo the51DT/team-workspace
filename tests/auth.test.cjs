@@ -262,3 +262,32 @@ test('legacy 24-hour sessions expire at the first midnight after issuance',()=>{
  app.run('Date=class extends Date {static now(){return '+Date.parse('2026-09-30T00:00:00+09:00')+'}}');
  assert.throws(()=>app.run('requireSession('+JSON.stringify(session.token)+')'),/만료/);
 });
+
+test('initial admin setup is sealed permanently once an account exists',()=>{
+ const app=harness();
+ assert.equal(app.run('setupAvailable()'),true);
+ setupAdmin(app);
+ assert.equal(app.properties.get('setup-admin-completed'),'1');
+ app.sheets.get('웹앱_계정').rows.length=1;
+ assert.equal(app.run('hasUsers()'),false);
+ assert.equal(app.run('setupAvailable()'),false);
+ assert.throws(()=>app.run("setupAdmin({username:'attacker',password:'password1',name:'공격자'})"),/완료/);
+ assert.throws(()=>app.run("loginPayload({username:'attacker',password:'password1'})"),/아이디 또는 비밀번호/);
+});
+
+test('an existing deployment without the seal is sealed on the first check',()=>{
+ const app=harness();
+ app.run("authSheet().appendRow(['admin','관리자','admin','salt','hash',true,'2026-01-01'])");
+ assert.equal(app.properties.has('setup-admin-completed'),false);
+ assert.equal(app.run('setupAvailable()'),false);
+ assert.equal(app.properties.get('setup-admin-completed'),'1');
+});
+
+test('authStatus stops advertising setup once sealed',()=>{
+ const app=harness();app.run('jsonResponse=payload=>payload');
+ const post=payload=>app.run('doPost({postData:{contents:'+JSON.stringify(JSON.stringify(payload))+'}})');
+ assert.equal(post({action:'authStatus'}).setupRequired,true);
+ setupAdmin(app);
+ assert.equal(post({action:'authStatus'}).setupRequired,false);
+ assert.equal(post({action:'setupAdmin',username:'attacker',password:'password1',name:'공격자'}).ok,false);
+});

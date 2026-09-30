@@ -10,6 +10,11 @@ function sessionExpiry(value){
  // Also align legacy 24-hour expiry values to the intervening Korean midnight.
  return Math.floor((stored+KST_OFFSET_MS)/DAY_MS)*DAY_MS-KST_OFFSET_MS;
 }
+const SETUP_SEAL_KEY='setup-admin-completed';
+function scriptProperties(){try{return PropertiesService.getScriptProperties();}catch{return null}}
+function setupSealed(){const props=scriptProperties();try{return props?props.getProperty(SETUP_SEAL_KEY)==='1':false}catch{return false}}
+function sealSetup(){const props=scriptProperties();if(props)try{props.setProperty(SETUP_SEAL_KEY,'1')}catch{}}
+function setupAvailable(){if(setupSealed())return false;if(hasUsers()){sealSetup();return false}return true}
 function workspaceKey(value){const key=value||'cx';if(!Object.prototype.hasOwnProperty.call(DATA_SHEETS,key))throw new Error('지원하지 않는 업무 공간입니다.');return key}
 
 function doGet(){return jsonResponse({ok:false,error:'로그인이 필요합니다. 인증된 POST 요청을 사용해 주세요.'});}
@@ -21,7 +26,7 @@ function doPost(e) {
   try {
     const request=JSON.parse((e&&e.postData&&e.postData.contents)||'{}');
     requestBook=SpreadsheetApp.getActiveSpreadsheet();
-    if(request.action==='authStatus')return jsonResponse({ok:true,setupRequired:!hasUsers()});
+    if(request.action==='authStatus')return jsonResponse({ok:true,setupRequired:setupAvailable()});
     if(request.action==='setupAdmin')return jsonResponse(setupAdmin(request));
     if(request.action==='login')return jsonResponse(loginPayload(request));
     if(request.action==='loginContinue')return jsonResponse(loginChunkPayload(request));
@@ -218,7 +223,7 @@ function passwordMatches(p,user){
  return valid;
 }
 function account(u,p,n,r){u=cleanUsername(u);p=cleanPassword(p);n=String(n||'').trim();if(!n)throw new Error('이름을 입력해 주세요.');if(ROLES.indexOf(r)<0)throw new Error('권한이 올바르지 않습니다.');const sh=authSheet(),rows=sh.getLastRow()>1?sh.getRange(2,1,sh.getLastRow()-1,7).getValues():[];if(rows.some(x=>String(x[0]).toLowerCase()===u))throw new Error('이미 존재하는 아이디입니다.');const salt=Utilities.getUuid();sh.appendRow([u,n,r,salt,passwordHash(p,salt),true,new Date().toISOString()]);return {username:u,name:n,role:r};}
-function setupAdmin(r){const lock=LockService.getScriptLock();lock.waitLock(10000);try{if(hasUsers())throw new Error('초기 관리자 설정이 완료되었습니다.');return {ok:true,user:account(r.username,r.password,r.name,'admin')};}finally{lock.releaseLock();}}
+function setupAdmin(r){const lock=LockService.getScriptLock();lock.waitLock(10000);try{if(!setupAvailable())throw new Error('초기 관리자 설정이 완료되었습니다.');const user=account(r.username,r.password,r.name,'admin');sealSetup();return {ok:true,user:user};}finally{lock.releaseLock();}}
 function createUserPayload(r){return {ok:true,user:account(r.username,r.password,r.name,r.role)};}
 // Cache only row positions. Always reread live values before authenticating.
 function findAuthRow(sheet,kind,value,width,ignoreCase){
@@ -258,7 +263,7 @@ function issueLoginSession(user){
 }
 function loginPayload(r){
  const u=cleanUsername(r.username),p=cleanPassword(r.password),user=findUser(u);
- if(!user&&!hasUsers())return {ok:true,setupRequired:true};
+ if(!user&&setupAvailable())return {ok:true,setupRequired:true};
  if(!user||!user.active||ROLES.indexOf(user.role)<0||!passwordMatches(p,user))throw new Error('아이디 또는 비밀번호가 올바르지 않습니다.');
  return issueLoginSession(user);
 }
@@ -267,7 +272,7 @@ function loginChunkPayload(r){
  const cache=CacheService.getScriptCache();let challenge,state,key,user;
  if(!r.challenge){
   const u=cleanUsername(r.username),p=cleanPassword(r.password);user=findUser(u);
-  if(!user&&!hasUsers())return {ok:true,setupRequired:true};
+  if(!user&&setupAvailable())return {ok:true,setupRequired:true};
   if(!user||!user.active||ROLES.indexOf(user.role)<0)throw new Error('아이디 또는 비밀번호가 올바르지 않습니다.');
   const verifiedKey=passwordFingerprint(p,user);
   try{if(cache.get(verifiedKey)==='1')return issueLoginSession(user);}catch{}
