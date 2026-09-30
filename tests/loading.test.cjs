@@ -541,7 +541,7 @@ test('saving after carry over backs up the original enterprise month',async()=>{
  await page.ready;await page.run("switchWorkspace('enterprise')");
  await page.run("selectedMonth=new Date(2026,8,1);carryOver()");
  assert.equal(backup,undefined);await page.run('saveAll()');
- assert.equal(backup.workspace,'enterprise');
+ assert.equal(backup.workspace,'enterprise');assert.equal(backup.month,'2026-09');
  assert.deepEqual(backup.headers,['등록','RMS','작업자','기획/퍼블','단계','STG 반영일','운영 반영일','업무제목','비고','작업시간']);
  assert.equal(backup.rows.length,1);assert.equal(backup.rows[0][5],'2026-09-24');assert.equal(backup.rows[0][7],'기업 업무');
  assert.equal(page.run("monthKey(selectedMonth)"),'2026-10');

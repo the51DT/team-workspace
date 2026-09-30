@@ -133,11 +133,11 @@ test('workspace ledger backup replaces the matching sheet with table data',()=>{
  const app=harness();
  const headers=['등록','RMS','작업자','단계','STG 반영일','운영 반영일','업무제목','비고','작업시간'];
  const rows=[['9/22','123','담당자','진행중','2026-09-24','2026-09-25','기업 업무','비고','1.250']];
- for(const [workspace,name] of [['cx','웹앱_CX_업무대장'],['enterprise','웹앱_기업_업무대장'],['aldot','웹앱_알닷_업무대장']]){
-  const result=app.run(`backupLedgerPayload(${JSON.stringify(headers)},${JSON.stringify(rows)},${JSON.stringify(workspace)})`);
-  assert.equal(result.sheet,name);assert.equal(result.rowCount,1);
-  assert.deepEqual(app.sheets.get(name).rows,[headers,...rows]);
-  assert.equal(app.sheets.get(name).frozenRows,1);
+ for(const [workspace,name] of [['cx','CX_2026-09'],['enterprise','기업_2026-09'],['aldot','알닷_2026-09']]){
+  const result=app.run(`backupLedgerPayload(${JSON.stringify(headers)},${JSON.stringify(rows)},${JSON.stringify(workspace)},'2026-09')`);
+  assert.equal(app.sheets.size,0);assert.equal(result.sheet,name);assert.equal(result.rowCount,1);
+  assert.deepEqual(app.backupSheets.get(name).rows,[headers,...rows]);
+  assert.equal(app.backupSheets.get(name).frozenRows,1);
  }
 });
 
@@ -261,4 +261,15 @@ test('legacy 24-hour sessions expire at the first midnight after issuance',()=>{
  assert.equal(app.run('requireSession('+JSON.stringify(session.token)+').role'),'admin');
  app.run('Date=class extends Date {static now(){return '+Date.parse('2026-09-30T00:00:00+09:00')+'}}');
  assert.throws(()=>app.run('requireSession('+JSON.stringify(session.token)+')'),/만료/);
+});
+
+test('backup separates months and overwrites repeat saves without duplicate tabs',()=>{
+ const app=harness();app.run("backupLedgerPayload(['업무'],[['A'],['B']],'cx','2026-09')");
+ app.run("backupLedgerPayload(['업무'],[['C']],'cx','2026-10')");
+ app.run("backupLedgerPayload(['업무'],[['D']],'cx','2026-09')");
+ assert.equal(app.backupSheets.size,2);assert.deepEqual(app.backupSheets.get('CX_2026-09').rows,[['업무'],['D']]);assert.deepEqual(app.backupSheets.get('CX_2026-10').rows,[['업무'],['C']]);
+ assert.throws(()=>app.run("backupLedgerPayload(['업무'],[],'cx','2026-13')"));
+ app.run("SpreadsheetApp.openById=()=>{throw Error('denied')}");
+ assert.throws(()=>app.run("backupLedgerPayload(['업무'],[],'cx','2026-09')"),/편집 권한/);
+ assert.deepEqual(app.backupSheets.get('CX_2026-09').rows,[['업무'],['D']]);
 });

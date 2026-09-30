@@ -161,7 +161,7 @@ async function saveAll(){
     if(ledgerMonth){
       const snapshot=ledgerTableSnapshot(ledgerMonth);
       $('#saveStatus').textContent='● '+ledgerMonth+' 전체 업무대장 저장 중…';
-      await requestServer({action:'backupLedger',headers:snapshot.headers,rows:snapshot.rows});
+      await requestServer({action:'backupLedger',month:ledgerMonth,headers:snapshot.headers,rows:snapshot.rows});
     }
     const result=await requestServer({action:'save',tasks});
     pendingLedgerMonths.delete(currentWorkspace);

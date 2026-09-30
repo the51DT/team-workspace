@@ -1,6 +1,7 @@
 const DATA_SHEETS = {cx:'웹앱_CX_업무데이터', enterprise:'웹앱_기업_업무데이터', aldot:'웹앱_알닷_업무데이터'};
 const WORKER_SHEETS = {cx:'웹앱_CX_작업자', enterprise:'웹앱_기업_작업자', aldot:'웹앱_알닷_작업자'};
-const LEDGER_SHEETS = {cx:'웹앱_CX_업무대장', enterprise:'웹앱_기업_업무대장', aldot:'웹앱_알닷_업무대장'};
+const LEDGER_SPREADSHEET_ID='1GE6qRt40qIQH_lol2XD7T9cTPBrrqPk2gDvZy2y-pz8';
+const LEDGER_NAMES={cx:'CX',enterprise:'기업',aldot:'알닷'};
 const AUTH_SHEET='웹앱_계정', SESSION_SHEET='웹앱_세션', AUDIT_SHEET='웹앱_수정이력';
 const ROLES=['admin','editor'];
 const KST_OFFSET_MS=9*60*60*1000,DAY_MS=24*60*60*1000;
@@ -35,7 +36,7 @@ function doPost(e) {
     if(request.action==='session')return jsonResponse({ok:true,user:publicUser(user)});
     if(request.action==='load'){const started=Date.now(),result=loadPayload(request.workspace);requestPhases.loadMs=Date.now()-started;return jsonResponse(Object.assign(result,{user:publicUser(user)}));}
     if(request.action==='save'){requireRole(user,['admin','editor']);return jsonResponse(savePayload(request.tasks,request.workspace,user));}
-    if(request.action==='backupLedger'){requireRole(user,['admin','editor']);return jsonResponse(backupLedgerPayload(request.headers,request.rows,request.workspace));}
+    if(request.action==='backupLedger'){requireRole(user,['admin','editor']);return jsonResponse(backupLedgerPayload(request.headers,request.rows,request.workspace,request.month));}
     if(request.action==='saveWorkers'){requireRole(user,['admin']);return jsonResponse(saveWorkersPayload(request.workers,request.workspace));}
     if(request.action==='listUsers'){requireRole(user,['admin']);return jsonResponse({ok:true,users:listUsers()});}
     if(request.action==='createUser'){requireRole(user,['admin']);return jsonResponse(createUserPayload(request));}
@@ -107,16 +108,17 @@ function validateTasks(tasks) {
   }
 }
 
-function backupLedgerPayload(headers,rows,workspace) {
+function backupLedgerPayload(headers,rows,workspace,month) {
+  if(!/^\d{4}-(0[1-9]|1[0-2])$/.test(String(month||'')))throw new Error('백업 대상 월이 필요합니다. 최신 화면으로 새로고침해 주세요.');
   workspace=workspaceKey(workspace);
   if(!Array.isArray(headers)||!headers.length||headers.some(value=>typeof value!=='string'))throw new Error('업무대장 헤더 형식이 올바르지 않습니다.');
   if(!Array.isArray(rows)||rows.some(row=>!Array.isArray(row)||row.length!==headers.length||row.some(value=>value!==null&&!['string','number','boolean'].includes(typeof value))))throw new Error('업무대장 데이터 형식이 올바르지 않습니다.');
   const lock=LockService.getScriptLock();
   lock.waitLock(10000);
   try{
-    const book=activeBook();
-    if(!book)throw new Error('대상 스프레드시트의 확장 프로그램 → Apps Script에서 실행해 주세요.');
-    const name=LEDGER_SHEETS[workspace];
+    let book;
+    try{book=SpreadsheetApp.openById(LEDGER_SPREADSHEET_ID);}catch{throw new Error('백업 스프레드시트에 접근할 수 없습니다. Apps Script 실행 계정의 편집 권한과 스프레드시트 접근 승인을 확인해 주세요.');}
+    const name=LEDGER_NAMES[workspace]+'_'+month;
     let sheet=book.getSheetByName(name);
     if(!sheet)sheet=book.insertSheet(name);
     sheet.clearContents();

@@ -3,7 +3,7 @@ const vm=require('node:vm');
 const crypto=require('node:crypto');
 
 function harness(){
- const sheets=new Map(),cache=new Map();
+ const sheets=new Map(),cache=new Map(),backupSheets=new Map();
  const CacheService={getScriptCache:()=>({get:key=>cache.get(key)??null,put:(key,value)=>cache.set(key,value),remove:key=>cache.delete(key)})};
  class Sheet{
   constructor(){this.rows=[]}
@@ -31,12 +31,13 @@ function harness(){
   }
  }
  const book={getSheetByName:name=>sheets.get(name)||null,insertSheet(name){const sheet=new Sheet();sheets.set(name,sheet);return sheet}};
+ const backupBook={getSheetByName:name=>backupSheets.get(name)||null,insertSheet(name){const sheet=new Sheet();backupSheets.set(name,sheet);return sheet}};
  const lock={waitLock(){},releaseLock(){}};
  let id=0;
  const Utilities={DigestAlgorithm:{SHA_256:'sha256'},Charset:{UTF_8:'utf8'},getUuid:()=>`uuid-${++id}`,computeDigest:(_algo,value)=>[...crypto.createHash('sha256').update(value).digest()],base64EncodeWebSafe:bytes=>Buffer.from(bytes).toString('base64url')};
- const context=vm.createContext({CacheService,SpreadsheetApp:{getActiveSpreadsheet:()=>book,flush(){}},LockService:{getScriptLock:()=>lock},Utilities,Date,JSON});
+ const context=vm.createContext({CacheService,SpreadsheetApp:{getActiveSpreadsheet:()=>book,openById:id=>{if(id!=='1GE6qRt40qIQH_lol2XD7T9cTPBrrqPk2gDvZy2y-pz8')throw Error('wrong destination');return backupBook},flush(){}},LockService:{getScriptLock:()=>lock},Utilities,Date,JSON});
  vm.runInContext(fs.readFileSync(require('node:path').join(__dirname,'../Code.gs'),'utf8'),context);
- return {run:code=>vm.runInContext(code,context),sheets,cache};
+ return {run:code=>vm.runInContext(code,context),sheets,cache,backupSheets};
 }
 
 module.exports={harness};
