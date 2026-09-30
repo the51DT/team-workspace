@@ -668,6 +668,9 @@ footer span:last-child {
 .table .col-worker {
   width: 84px;
 }
+.table .col-work-type {
+  width: 76px;
+}
 .table .col-status {
   width: 84px;
 }

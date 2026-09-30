@@ -46,10 +46,10 @@ test('load uses Apps Script tasks and maps nine columns without losing work hour
   assert.equal(page.requests[0].payload.action,'load');assert.equal(page.run('data[0][9]'),'1.5');
   assert.match(page.element('#rows').innerHTML,/업무 제목/);assert.equal(page.run('serverConnected'),true);
 });
-test('save sends the full nine-column task list and reload retrieves it',async()=>{
+test('save upgrades legacy tasks to the full thirteen-column task list',async()=>{
   let tasks=[task];const page=app(p=>{if(p.action==='save'){tasks=p.tasks;return {ok:true,updatedAt:'saved'}}return {ok:true,tasks}});await page.ready;
   page.run("remember(0,5,'수정 업무')");await page.run('saveAll()');
-  assert.equal(tasks[0][5],'수정 업무');assert.equal(tasks[0].length,9);
+  assert.equal(tasks[0][5],'수정 업무');assert.equal(tasks[0].length,13);
   assert.equal(page.requests[1].headers['Content-Type'],'text/plain;charset=utf-8');
   await page.run('load()');assert.equal(page.run('data[0][5]'),'수정 업무');
 });
@@ -325,16 +325,18 @@ test('completion date sort toggles ascending and descending with blanks last',as
  assert.equal(page.run("selected().map(x=>x.r[5]).join(',')"),'늦은 업무,이른 업무,날짜 없음');
 });
 
-test('enterprise STG date persists separately and adjustment is only visible in CX',async()=>{
+test('enterprise STG date persists separately and every workspace has planning/publishing choice',async()=>{
  const stores={cx:[task],enterprise:[task],aldot:[task]};
  const page=app(p=>{if(p.action==='save')stores[p.workspace]=p.tasks;return {ok:true,workspace:p.workspace,tasks:stores[p.workspace]}});await page.ready;
  assert.match(page.element('#rows').innerHTML,/aria-label="조정"/);
+ assert.match(page.element('#rows').innerHTML,/work-type-select[\s\S]*기획[\s\S]*퍼블/);
  await page.run("switchWorkspace('enterprise')");
  assert.match(page.element('#rows').innerHTML,/aria-label="STG 반영일"/);
  assert.doesNotMatch(page.element('#rows').innerHTML,/aria-label="조정"/);
- page.run("remember(0,11,'2026-09-25')");await page.run('saveAll()');await page.run('load()');
- assert.equal(stores.enterprise[0].length,12);assert.equal(page.run('data[0][11]'),'2026-09-25');assert.equal(page.run('data[0][4]'),'2026-09-20');
- await page.run("switchWorkspace('aldot')");assert.doesNotMatch(page.element('#rows').innerHTML,/STG 반영일|aria-label="조정"/);
+ page.run("remember(0,11,'2026-09-25');remember(0,12,'기획')");await page.run('saveAll()');await page.run('load()');
+ assert.equal(stores.enterprise[0].length,13);assert.equal(page.run('data[0][11]'),'2026-09-25');assert.equal(page.run('data[0][12]'),'기획');assert.equal(page.run('data[0][4]'),'2026-09-20');
+ await page.run("switchWorkspace('aldot')");assert.doesNotMatch(page.element('#rows').innerHTML,/STG 반영일|aria-label="조정"/);assert.match(page.element('#rows').innerHTML,/work-type-select/);
+ page.run("remember(0,12,'퍼블')");await page.run('saveAll()');assert.equal(stores.aldot[0][12],'퍼블');
 });
 
 
@@ -524,8 +526,8 @@ test('saving after carry over backs up the original enterprise month',async()=>{
  await page.run("selectedMonth=new Date(2026,8,1);carryOver()");
  assert.equal(backup,undefined);await page.run('saveAll()');
  assert.equal(backup.workspace,'enterprise');
- assert.deepEqual(backup.headers,['등록','RMS','작업자','단계','STG 반영일','운영 반영일','업무제목','비고','작업시간']);
- assert.equal(backup.rows.length,1);assert.equal(backup.rows[0][4],'2026-09-24');assert.equal(backup.rows[0][6],'기업 업무');
+ assert.deepEqual(backup.headers,['등록','RMS','작업자','기획/퍼블','단계','STG 반영일','운영 반영일','업무제목','비고','작업시간']);
+ assert.equal(backup.rows.length,1);assert.equal(backup.rows[0][5],'2026-09-24');assert.equal(backup.rows[0][7],'기업 업무');
  assert.equal(page.run("monthKey(selectedMonth)"),'2026-10');
 });
 
@@ -535,7 +537,7 @@ test('ledger after carry saves all source-month rows regardless of filters and p
  const page=app(p=>{if(p.action==='backupLedger')backup=p;if(p.action==='save')tasks=p.tasks;return {ok:true,workspace:p.workspace,tasks}});await page.ready;
  page.element('#search').value='검색에 없는 내용';page.element('#worker').value='다른 작업자';
  await page.run('selectedMonth=new Date(2026,8,1);carryOver()');assert.equal(backup,undefined);
- await page.run('saveAll()');assert.equal(backup.rows.length,2);assert.ok(backup.rows.some(r=>r[3]==='완료'));assert.ok(!backup.rows.some(r=>r[5]==='다음 달 업무'));
+ await page.run('saveAll()');assert.equal(backup.rows.length,2);assert.ok(backup.rows.some(r=>r[4]==='완료'));assert.ok(!backup.rows.some(r=>r[6]==='다음 달 업무'));
  assert.equal(tasks.length,4);assert.equal(page.run('pendingLedgerMonths.size'),0);
 });
 
