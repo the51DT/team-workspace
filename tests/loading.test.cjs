@@ -325,6 +325,22 @@ test('completion date sort toggles ascending and descending with blanks last',as
  assert.equal(page.run("selected().map(x=>x.r[5]).join(',')"),'늦은 업무,이른 업무,날짜 없음');
 });
 
+test('blank operating completion date renders empty until focused',async()=>{
+ const blank=[...task];blank[4]='';
+ const page=app(()=>({ok:true,tasks:[blank]}));await page.ready;
+ assert.match(page.element('#rows').innerHTML,/type="text" class="date-input" aria-label="운영 반영일"/);
+ page.run("data[0][4]='2026-09-30';render()");
+ assert.match(page.element('#rows').innerHTML,/type="date" class="date-input" aria-label="운영 반영일"/);
+});
+
+test('blank enterprise STG date renders empty until focused',async()=>{
+ const page=app(p=>({ok:true,workspace:p.workspace,tasks:[task]}));await page.ready;
+ await page.run("switchWorkspace('enterprise')");
+ assert.match(page.element('#rows').innerHTML,/type="text" class="date-input" aria-label="STG 반영일"/);
+ page.run("data[0][11]='2026-09-30';render()");
+ assert.match(page.element('#rows').innerHTML,/type="date" class="date-input" aria-label="STG 반영일"/);
+});
+
 test('enterprise STG date persists separately and every workspace has planning/publishing choice',async()=>{
  const stores={cx:[task],enterprise:[task],aldot:[task]};
  const page=app(p=>{if(p.action==='save')stores[p.workspace]=p.tasks;return {ok:true,workspace:p.workspace,tasks:stores[p.workspace]}});await page.ready;
