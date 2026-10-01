@@ -12,7 +12,7 @@ function app(handler,storage=new Map(),hash='#cx',guest=false,sessionStore=new M
   const location={hash,origin,pathname:'/team-workspace/index.html',search:''};
   const navigate=(_state,_title,url)=>{location.hash=url.includes('#')?url.slice(url.indexOf('#')):''};
   const elements=new Map(),requests=[];
-  const element=id=>{if(!elements.has(id))elements.set(id,{value:['#worker','#status'].includes(id)?'all':'',innerHTML:'',textContent:'',classList:{active:false,toggle(_name,on){this.active=on}},addEventListener(){},setAttribute(){},focus(){}});return elements.get(id)};
+  const element=id=>{if(!elements.has(id))elements.set(id,{value:['#worker','#workTypeFilter','#status'].includes(id)?'all':'',innerHTML:'',textContent:'',classList:{active:false,toggle(_name,on){this.active=on}},addEventListener(){},setAttribute(){},focus(){}});return elements.get(id)};
   const context=vm.createContext({window:{location,history:{pushState:navigate,replaceState:navigate},addEventListener(){},APPS_SCRIPT_URL:'https://example.test/exec',WORKERS:['작업자 A']},URL,AbortSignal,console,Date:FixedDate,
     fetch:async(url,options)=>{const payload=options.method==='GET'?Object.fromEntries(new URL(url).searchParams):JSON.parse(options.body);requests.push({url,payload,method:options.method,headers:options.headers});const result=await handler(payload);return {ok:true,json:async()=>result}},
     localStorage:{get length(){return storage.size},key:i=>[...storage.keys()][i]??null,getItem:key=>storage.get(key)??null,setItem:(key,value)=>storage.set(key,value),removeItem:key=>storage.delete(key)},sessionStorage:{get length(){return sessionStore.size},key:i=>[...sessionStore.keys()][i]??null,getItem:key=>sessionStore.get(key)??null,setItem:(key,value)=>sessionStore.set(key,value),removeItem:key=>sessionStore.delete(key)},alert(){},confirm:()=>true,requestAnimationFrame:fn=>fn(),setTimeout,
@@ -262,18 +262,35 @@ test('edits remain local until the save button is used',async()=>{
  await page.element('#saveAll').onclick();
  assert.equal(saved[0][5],'수동 저장 업무');
 });
-test('work summary groups filtered actual hours by worker',async()=>{
+test('CX summary uses calculated adjustments while other workspaces show rounded whole hours',async()=>{
  const first=[...task];first[2]='작업자 A';first[7]='1.234';
  const second=[...task];second[2]='작업자 A';second[7]='2.5';
  const third=[...task];third[2]='작업자 B';third[7]='4';
- const page=app(()=>({ok:true,tasks:[first,second,third]}));await page.ready;
+ const page=app(p=>({ok:true,workspace:p.workspace,tasks:[first,second,third]}));await page.ready;
  assert.match(page.element('#workSummary').innerHTML,/작업자 A/);
- assert.match(page.element('#workSummary').innerHTML,/3\.734/);
+ assert.doesNotMatch(page.element('#workSummary').innerHTML,/summary-label|>작업시간</);
+ assert.match(page.element('#workSummary').innerHTML,/0\.467/);
  assert.match(page.element('#workSummary').innerHTML,/작업자 B/);
- assert.match(page.element('#workSummary').innerHTML,/4\.000/);
+ assert.match(page.element('#workSummary').innerHTML,/0\.50/);
+ assert.equal(page.run('data[0][10]'),'0.154');
+ assert.equal(page.run('data[1][10]'),'0.313');
+ assert.equal(page.run("calculatedAdjustment('9.6')"),'1.20');
+ assert.match(page.element('#rows').innerHTML,/aria-label="조정"[^>]*>0\.154</);
  page.element('#worker').value='작업자 B';page.run('render()');
  assert.doesNotMatch(page.element('#workSummary').innerHTML,/작업자 A/);
  assert.match(page.element('#workSummary').innerHTML,/작업자 B/);
+ await page.run("switchWorkspace('enterprise')");
+ assert.match(page.element('#workSummary').innerHTML,/publishing-total-hours">4</);
+ assert.doesNotMatch(page.element('#workSummary').innerHTML,/\.\d{3}/);
+});
+test('planning and publishing filter narrows both table rows and summaries',async()=>{
+ const planning=[...task],publishing=[...task];planning[2]='기획자';planning.push('','','','기획');publishing[2]='퍼블리셔';publishing.push('','','','퍼블');
+ const page=app(p=>({ok:true,workspace:p.workspace,tasks:[planning,publishing]}));await page.ready;
+ assert.equal(page.run('selected().length'),2);
+ page.element('#workTypeFilter').value='기획';page.run('render()');
+ assert.equal(page.run('selected().length'),1);assert.match(page.element('#workSummary').innerHTML,/기획자/);assert.doesNotMatch(page.element('#workSummary').innerHTML,/퍼블리셔/);
+ page.element('#workTypeFilter').value='퍼블';page.run('render()');
+ assert.equal(page.run('selected().length'),1);assert.match(page.element('#workSummary').innerHTML,/퍼블리셔/);
 });
 test('save commits focused edit and storage cleanup failure does not report remote save failure',async()=>{
  let saved;const page=app(p=>{if(p.action==='save'){saved=p.tasks;return {ok:true}}return {ok:true,tasks:[task]}});await page.ready;
@@ -421,7 +438,7 @@ test('all stages except completed copy to the next month',async()=>{
  assert.equal(page.run('selected().length'),5);assert.equal(page.run('data.length'),15);
  assert.equal(page.run("selected().every(({r})=>r[0]==='2026-09-19'&&r[6]==='비고'&&r[9]===''&&r[10]==='')"),true);
  page.run("selectTab('list');changeMonth(-1)");assert.equal(page.run('selected().length'),8);
- assert.equal(page.run("selected().every(({r})=>r[9]==='2'&&r[10]==='1')"),true);
+ assert.equal(page.run("selected().every(({r})=>r[9]==='2'&&r[10]==='0.25')"),true);
  await page.run('carryOver()');assert.equal(await page.run('data.length'),15);
 });
 
