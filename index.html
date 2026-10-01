@@ -195,6 +195,17 @@
               <span class="sch-spacer"></span>
               <span id="schStatus" class="sch-status" role="status" aria-live="polite"></span>
               <button class="sch-btn sm" id="schRefresh" type="button" aria-label="서버에서 최신 휴가 일정 불러오기" title="서버에서 최신 휴가 일정 불러오기">↻</button>
+              <span
+                ><select id="worker">
+                  <option value="all">전체 작업자</option></select
+                ><select id="workTypeFilter" aria-label="기획/퍼블 필터">
+                  <option value="all">기획/퍼블</option>
+                  <option value="기획">기획</option>
+                  <option value="퍼블">퍼블</option></select
+                ><select id="status">
+                  <option value="all">전체 단계</option>
+                </select></span
+              >
             </div>
 
             <div class="sch-calendar">
