@@ -666,3 +666,10 @@ test('view window rolls over at Korean midnight and across years',async()=>{
   assert.equal(page.run('Object.values(viewMonthBounds('+Date.parse(date)+')).map(monthKey).join(",")'),expected);
  }
 });
+
+test('login retries only explicit pre-issuance busy responses and stops after two retries',async()=>{
+ let count=0;const page=app(()=>++count<3?{ok:false,code:'LOGIN_BUSY',error:'busy'}:{ok:true,token:'t'},new Map(),'',true);await page.ready;
+ page.run('setTimeout=fn=>fn()');const result=await page.run("loginRequest({action:'login'})");assert.equal(result.token,'t');assert.equal(count,3);
+ const busy=app(()=>({ok:false,code:'LOGIN_BUSY',error:'busy'}),new Map(),'',true);await busy.ready;busy.run('setTimeout=fn=>fn()');await assert.rejects(busy.run("loginRequest({action:'login'})"),/busy/);assert.equal(busy.requests.length,3);
+ const failed=app(()=>{throw new TypeError('Failed to fetch')},new Map(),'',true);await failed.ready;await assert.rejects(failed.run("loginRequest({action:'login'})"));assert.equal(failed.requests.length,1);
+});

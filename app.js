@@ -100,7 +100,7 @@ async function postJson(payload){
   console.info('[API timing]',window.lastApiTiming);
   if(!result?.ok){
    if(result?.error==='POST 로그인 요청을 사용해 주세요.')throw new Error('서버에 이전 조회 코드가 배포되어 있습니다. Code.gs를 반영하고 새 버전으로 배포해 주세요.');
-   throw new Error(result?.error||result?.message||'Apps Script 요청에 실패했습니다.');
+   const error=new Error(result?.error||result?.message||'Apps Script 요청에 실패했습니다.');error.code=result?.code;throw error;
   }
   return result;
  }finally{updateLoadingBar(-1);}
@@ -473,6 +473,15 @@ async function publicRequest(payload){
  try{return await postJson(payload);}catch(error){throw requestError(error);}
 }
 
+async function loginRequest(payload){
+ for(let attempt=0;;attempt++){
+  try{return await publicRequest(payload);}catch(error){
+   if(error.code!=='LOGIN_BUSY'||attempt>=2)throw error;
+   $('#authError').textContent='다른 저장 작업 완료를 기다리는 중… ('+(attempt+1)+'/2)';
+   await new Promise(resolve=>setTimeout(resolve,500+Math.floor(Math.random()*500)));
+  }
+ }
+}
 const AUTH_USER_KEY='workflow-auth-user';
 function storeAuthUser(user){try{localStorage.setItem(AUTH_USER_KEY,JSON.stringify(user));}catch{}}
 function persistAuthToken(token){
@@ -532,7 +541,7 @@ function openLogin(){closeGuide();
 }
 $$('[data-login]').forEach(el=>el.onclick=openLogin);
 
-$("#authForm").onsubmit=async(event)=>{event.preventDefault();$("#authError").textContent="로그인 정보를 확인하고 있습니다…";$("#loginSubmit").disabled=true;try{if(setupRequired){await publicRequest({action:"setupAdmin",username:$("#loginUsername").value,password:$("#loginPassword").value,name:$("#loginName").value,});setupRequired=false;}let result=await publicRequest({action:"login",username:$("#loginUsername").value,password:$("#loginPassword").value,});while(result.pending){$("#authError").textContent=`로그인 정보를 확인하고 있습니다… (${result.step}/${result.total})`;result=await publicRequest({action:"loginContinue",challenge:result.challenge});}if(result.setupRequired){setupRequired=true;configureLogin();$('#loginName').focus();return;}authToken=result.token;currentUser=result.user;restoringAuth=false;persistAuthToken(authToken);storeAuthUser(currentUser);showAuthenticated();applyPermissions(false);await restoreRoute();}catch(error){$("#authError").textContent=error.message;}finally{$("#loginSubmit").disabled=false;}};
+$("#authForm").onsubmit=async(event)=>{event.preventDefault();$("#authError").textContent="로그인 정보를 확인하고 있습니다…";$("#loginSubmit").disabled=true;try{if(setupRequired){await publicRequest({action:"setupAdmin",username:$("#loginUsername").value,password:$("#loginPassword").value,name:$("#loginName").value,});setupRequired=false;}let result=await loginRequest({action:"login",username:$("#loginUsername").value,password:$("#loginPassword").value,});while(result.pending){$("#authError").textContent=`로그인 정보를 확인하고 있습니다… (${result.step}/${result.total})`;result=await publicRequest({action:"loginContinue",challenge:result.challenge});}if(result.setupRequired){setupRequired=true;configureLogin();$('#loginName').focus();return;}authToken=result.token;currentUser=result.user;restoringAuth=false;persistAuthToken(authToken);storeAuthUser(currentUser);showAuthenticated();applyPermissions(false);await restoreRoute();}catch(error){$("#authError").textContent=error.message;}finally{$("#loginSubmit").disabled=false;}};
 $$("[data-logout]").forEach(el=>el.onclick=async()=>{try{await requestServer({action:"logout"});}catch{}clearAuthSession();location.reload();});
 let passwordChanging=false;
 $$('[data-password]').forEach(el=>el.onclick=()=>{

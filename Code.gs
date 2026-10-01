@@ -56,7 +56,7 @@ function doPost(e) {
     if(request.action==='listUsers'){requireRole(user,['admin']);return jsonResponse({ok:true,users:listUsers()});}
     if(request.action==='createUser'){requireRole(user,['admin']);return jsonResponse(createUserPayload(request));}
     return jsonResponse({ok:false,error:'지원하지 않는 요청입니다.'});
-  }catch(error){return jsonResponse({ok:false,error:error.message});}
+  }catch(error){return jsonResponse({ok:false,error:error.message,...(error.code?{code:error.code}:{})});}
 }
 function loadPayload(workspace) {
   workspace=workspaceKey(workspace);
@@ -332,12 +332,16 @@ function findUser(u){
 }
 function publicUser(u){return {username:u.username,name:u.name,role:u.role};}
 function issueLoginSession(user){
- const lock=LockService.getScriptLock();lock.waitLock(10000);
+ const lock=LockService.getScriptLock();
+ try{lock.waitLock(10000);}catch{
+  const error=new Error('다른 저장 작업으로 로그인이 지연되고 있습니다. 잠시 후 다시 시도해 주세요.');error.code='LOGIN_BUSY';throw error;
+ }
  try{
   const latest=findUser(user.username);
   if(!latest||!latest.active||ROLES.indexOf(latest.role)<0||latest.hash!==user.hash||latest.salt!==user.salt)throw new Error('계정 정보가 변경되었습니다. 다시 로그인해 주세요.');
   const token=Utilities.getUuid()+Utilities.getUuid().replace(/-/g,''),expiryDate=new Date(nextSessionMidnight()),expires=expiryDate.toISOString();
   sessionSheet().appendRow([token,user.username,kstTimestamp(expiryDate)]);
+  SpreadsheetApp.flush();
   return {ok:true,token:token,user:publicUser(latest),expiresAt:expires};
  }finally{lock.releaseLock();}
 }
@@ -405,12 +409,15 @@ function loadAuditPayload(ws,cursor){
 }
 
 function changePasswordPayload(request){
+ const user=requireSession(request.token),old=cleanPassword(request.currentPassword),next=cleanPassword(request.newPassword);
+ if(passwordHash(old,user.salt)!==user.hash)throw new Error('현재 비밀번호가 올바르지 않습니다.');
+ if(old===next)throw new Error('새 비밀번호는 현재 비밀번호와 다르게 입력해 주세요.');
+ const salt=Utilities.getUuid(),hash=passwordHash(next,salt);
  const lock=LockService.getScriptLock();lock.waitLock(10000);
  try{
-  const user=requireSession(request.token),old=cleanPassword(request.currentPassword),next=cleanPassword(request.newPassword);
-  if(passwordHash(old,user.salt)!==user.hash)throw new Error('현재 비밀번호가 올바르지 않습니다.');
-  if(old===next)throw new Error('새 비밀번호는 현재 비밀번호와 다르게 입력해 주세요.');
-  const salt=Utilities.getUuid(),hash=passwordHash(next,salt),sh=authSheet(),rows=sh.getRange(2,1,sh.getLastRow()-1,7).getValues();
+  const latest=requireSession(request.token);
+  if(latest.hash!==user.hash||latest.salt!==user.salt)throw new Error('계정 정보가 변경되었습니다. 다시 로그인해 주세요.');
+  const sh=authSheet(),rows=sh.getRange(2,1,sh.getLastRow()-1,7).getValues();
   const index=rows.findIndex(row=>String(row[0]).toLowerCase()===user.username);
   if(index<0)throw new Error('계정을 찾을 수 없습니다.');
   const sessions=sessionSheet(),last=sessions.getLastRow();

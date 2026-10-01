@@ -287,3 +287,15 @@ test('backup separates months and overwrites repeat saves without duplicate tabs
  assert.throws(()=>app.run("backupLedgerPayload(['업무'],[],'cx','2026-09')"),/편집 권한/);
  assert.deepEqual(app.backupSheets.get('CX_2026-09').rows,[['업무'],['D']]);
 });
+
+test('login lock timeout reports retryable busy without issuing a session',()=>{
+ const app=harness();setupAdmin(app);app.run('jsonResponse=payload=>payload');
+ app.run("LockService.getScriptLock=()=>({waitLock(){throw Error('busy')},releaseLock(){}})");
+ const result=app.run('doPost({postData:{contents:JSON.stringify({action:"login",username:"admin",password:"password1"})}})');
+ assert.equal(result.ok,false);assert.equal(result.code,'LOGIN_BUSY');assert.equal(app.sheets.has('웹앱_세션'),false);
+});
+test('password change hashes before locking and still rejects a revoked session',()=>{
+ const app=harness();setupAdmin(app);const session=app.run("loginPayload({username:'admin',password:'password1'})");
+ app.run("let held=false;const oldHash=passwordHash;passwordHash=(p,s)=>{if(held)throw Error('hash inside lock');return oldHash(p,s)};LockService.getScriptLock=()=>({waitLock(){held=true;sessionSheet().rows=[sessionSheet().rows[0]]},releaseLock(){held=false}})");
+ assert.throws(()=>app.run('changePasswordPayload('+JSON.stringify({token:session.token,currentPassword:'password1',newPassword:'password2'})+')'),/만료/);
+});
