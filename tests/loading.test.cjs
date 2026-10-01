@@ -397,7 +397,7 @@ test('cancel is migrated to held and is not offered as a stage',async()=>{
 test('month navigation crosses years and save retains tasks from other months',async()=>{
  let saved;const rows=['2026-12-15','2027-01-03'].map(date=>[date,...task.slice(1,3),'완료',...task.slice(4)]);
  const page=app(p=>{if(p.action==='save'){saved=p.tasks;return {ok:true}}return {ok:true,tasks:rows}});await page.ready;
- page.run("currentTab='list';selectedMonth=new Date(2026,11,1);updateMonth()");
+ page.run("Date=class extends Date {static now(){return 1797260400000}};currentTab='list';selectedMonth=new Date(2026,11,1);updateMonth()");
  assert.equal(page.run('selected().length'),1);
  page.run('changeMonth(1)');assert.equal(page.element('#monthLabel').textContent,'2027년 01월');
  assert.equal(page.run('selected()[0].r[0]'),'2027-01-03');
@@ -407,7 +407,7 @@ test('month navigation crosses years and save retains tasks from other months',a
 });
 test('new tasks belong to selected month with explicit year',async()=>{
  const page=app(()=>({ok:true,tasks:[]}));await page.ready;
- page.run('selectedMonth=new Date(2027,1,1);addRow()');
+ page.run('Date=class extends Date {static now(){return 1802617200000}};selectedMonth=new Date(2027,1,1);addRow()');
  assert.equal(page.run('data[0][0]'),'2027-02-01');assert.equal(page.run('selected().length'),1);
 });
 
@@ -423,7 +423,7 @@ test('legacy statuses migrate and monthly copies persist without duplicating aft
  let tasks=['보류','이월','완료','진행'].map((status,i)=>['2026-12-19',''+i,'작업자 A',status,'','업무 '+i,'메모','1','0']);
  const page=app(p=>{if(p.action==='save'){tasks=p.tasks;return {ok:true}}return {ok:true,tasks}});await page.ready;
  assert.equal(page.run('data[1][3]'),'보류');assert.equal(page.run('data[3][3]'),'진행중');
- await page.run('selectedMonth=new Date(2026,11,1);carryOver()');
+ await page.run('Date=class extends Date {static now(){return 1797260400000}};selectedMonth=new Date(2026,11,1);carryOver()');
  assert.equal(page.run('selected().length'),1);assert.equal(page.run('data.length'),7);
  assert.equal(page.run('selected()[0].r[3]'),'진행중');
  page.run("remember(selected()[0].i,5,'수정된 복사 업무')");await page.run('saveAll()');await page.run('load()');
@@ -442,11 +442,11 @@ test('all stages except completed copy to the next month',async()=>{
  await page.run('carryOver()');assert.equal(await page.run('data.length'),15);
 });
 
-test('month navigation cannot go before September 2026 and never creates copies',async()=>{
+test('month navigation is restricted to three months and never creates copies',async()=>{
  const page=app(()=>({ok:true,tasks:[task]}));await page.ready;
- page.run('selectedMonth=new Date(2026,8,1);updateMonth();changeMonth(-1)');
- assert.equal(page.element('#monthLabel').textContent,'2026년 09월');assert.equal(page.element('#prevMonth').disabled,true);
- page.run('changeMonth(1)');assert.equal(page.run('data.length'),1);assert.equal(page.run('selected().length'),0);
+ page.run('selectedMonth=new Date(2026,7,1);updateMonth();changeMonth(-1)');
+ assert.equal(page.element('#monthLabel').textContent,'2026년 08월');assert.equal(page.element('#prevMonth').disabled,true);
+ page.run('changeMonth(1);changeMonth(1)');assert.equal(page.run('data.length'),1);assert.equal(page.run('selected().length'),0);assert.equal(page.element('#nextMonth').disabled,true);page.run('changeMonth(1)');assert.equal(page.element('#monthLabel').textContent,'2026년 10월');
  await page.run('changeMonth(-1);carryOver()');assert.equal(await page.run('data.length'),2);assert.equal(page.element('#monthLabel').textContent,'2026년 10월');
  await page.run('changeMonth(-1);carryOver()');assert.equal(await page.run('data.length'),2);
 });
@@ -649,4 +649,20 @@ test('localhost, loopback and static hosting permit authenticated requests',asyn
 test('logout clears in-memory tasks and drafts',async()=>{
  const page=app(()=>({ok:true,tasks:[task]}));await page.ready;page.run("workspaceDrafts.set('cx',{data});clearAuthSession()");
  assert.equal(page.run('data.length'),0);assert.equal(page.run('workspaceDrafts.size'),0);assert.equal(page.element('#rows').innerHTML,'');
+});
+
+test('three-month view preserves all server rows on save and blocks out-of-range carry',async()=>{
+ let saved;const tasks=['2026-07-01','2026-08-01','2026-09-01','2026-10-01','2026-11-01'].map(date=>[date,...task.slice(1)]);
+ const page=app(p=>{if(p.action==='save')saved=p.tasks;return {ok:true,tasks}});await page.ready;
+ page.run("selectedMonth=new Date(2026,9,1);updateMonth()");
+ await page.run('carryOver()');assert.equal(page.run('data.length'),5);assert.equal(page.run('pendingLedgerMonths.size'),0);
+ page.run("selectedMonth=new Date(2026,6,1)");assert.equal(page.run('selected().length'),0);
+ page.run("selectedMonth=new Date(2026,8,1);remember(2,5,'수정')");await page.run('saveAll()');
+ assert.equal(saved.length,5);assert.equal(saved[0][0],'2026-07-01');assert.equal(saved[4][0],'2026-11-01');assert.equal(saved[2][5],'수정');
+});
+test('view window rolls over at Korean midnight and across years',async()=>{
+ const page=app(()=>({ok:true,tasks:[]}));await page.ready;
+ for(const [date,expected] of [['2026-09-30T14:59:59Z','2026-08,2026-09,2026-10'],['2026-09-30T15:00:00Z','2026-09,2026-10,2026-11'],['2026-12-31T15:00:00Z','2026-12,2027-01,2027-02']]){
+  assert.equal(page.run('Object.values(viewMonthBounds('+Date.parse(date)+')).map(monthKey).join(",")'),expected);
+ }
 });

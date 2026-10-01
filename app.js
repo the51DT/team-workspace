@@ -15,7 +15,12 @@ let authToken='',currentUser=null,setupRequired=false,restoringAuth=false;
 const canEdit=()=>currentUser&&['admin','editor'].includes(currentUser.role);
 let saving=false;
 const calendarToday=new Date();
-let selectedMonth=new Date(calendarToday.getFullYear(),calendarToday.getMonth(),1);
+function viewMonthBounds(now=Date.now()){
+ const korea=new Date(now+9*3600000),year=korea.getUTCFullYear(),month=korea.getUTCMonth();
+ return {first:new Date(year,month-1,1),current:new Date(year,month,1),last:new Date(year,month+1,1)};
+}
+function isViewMonth(month){const bounds=viewMonthBounds();return month>=bounds.first&&month<=bounds.last;}
+let selectedMonth=viewMonthBounds().current;
 let currentTab='active',completionSort='';
 let data=[],newRows=new Set(),deleteMode=false,edits={};const $=s=>document.querySelector(s),$$=s=>[...document.querySelectorAll(s)],esc=v=>String(v??'').replace(/[&<>\"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','\"':'&quot;'}[c]));
 const nowText=()=>{let d=new Date(),p=n=>String(n).padStart(2,'0');return `${p(d.getFullYear()%100)}.${p(d.getMonth()+1)}.${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`};
@@ -212,13 +217,16 @@ function copyPreviousMonth(targetMonth=selectedMonth){
 }
 
 function updateMonth(){
-  $('#prevMonth').disabled=selectedMonth<=new Date(2026,8,1);
+  const bounds=viewMonthBounds();
+  if(!isViewMonth(selectedMonth))selectedMonth=bounds.current;
+  $('#prevMonth').disabled=selectedMonth<=bounds.first;
+  $('#nextMonth').disabled=selectedMonth>=bounds.last;
   $('#monthLabel').textContent=selectedMonth.getFullYear()+'년 '+String(selectedMonth.getMonth()+1).padStart(2,'0')+'월';
 }
 function changeMonth(offset){
   if(loading||saving)return;
   const next=new Date(selectedMonth.getFullYear(),selectedMonth.getMonth()+offset,1);
-  if(next<new Date(2026,8,1))return;
+  if(!isViewMonth(next))return;
   document.activeElement?.blur?.();selectedMonth=next;
   updateMonth();render();
 }
@@ -233,9 +241,10 @@ function ledgerTableSnapshot(month=monthKey(selectedMonth)){
 }
 async function carryOver(){
   if(loading||saving||!serverConnected||(currentUser&&!canEdit()))return;
+  const next=new Date(selectedMonth.getFullYear(),selectedMonth.getMonth()+1,1);
+  if(!isViewMonth(selectedMonth)||!isViewMonth(next)){$('#saveStatus').textContent='● 이월은 조회 가능한 다음 달까지만 가능합니다.';return;}
   document.activeElement?.blur?.();
   pendingLedgerMonths.set(currentWorkspace,monthKey(selectedMonth));
-  const next=new Date(selectedMonth.getFullYear(),selectedMonth.getMonth()+1,1);
   const count=copyPreviousMonth(next);
   if(!count){$('#saveStatus').textContent='● 이월할 업무가 없습니다. 저장하면 해당 월 전체 목록을 업무대장에 반영합니다.';return}
   selectedMonth=next;$('#search').value='';$('#worker').value='all';$('#workTypeFilter').value='all';$('#status').value='all';
@@ -243,7 +252,7 @@ async function carryOver(){
 }
 function completionDateValue(value){const normalized=dateValue(value);if(!normalized)return null;const time=Date.parse(normalized+'T00:00:00');return Number.isFinite(time)?time:null}
 function compareCompletionDate(a,b){const av=completionDateValue(a.r[4]),bv=completionDateValue(b.r[4]);if(av===null&&bv===null)return a.i-b.i;if(av===null)return 1;if(bv===null)return -1;return completionSort==='asc'?av-bv||a.i-b.i:bv-av||a.i-b.i}
-function selected(){let q=$('#search').value.toLowerCase(),w=$('#worker').value,t=$('#workTypeFilter').value,s=$('#status').value,month=monthKey(selectedMonth),rows=data.map((r,i)=>({r,i})).filter(x=>rowMonth(x.r)===month&&(currentTab!=='active'||!['완료','보류'].includes(x.r[3]))&&(!q||x.r.join(' ').toLowerCase().includes(q))&&(w==='all'||x.r[2]===w)&&(t==='all'||x.r[12]===t)&&(s==='all'||x.r[3]===s));return completionSort?rows.sort(compareCompletionDate):rows.sort((a,b)=>Number(newRows.has(b.i))-Number(newRows.has(a.i))||(newRows.has(a.i)?b.i-a.i:a.i-b.i))}
+function selected(){if(!isViewMonth(selectedMonth))return [];let q=$('#search').value.toLowerCase(),w=$('#worker').value,t=$('#workTypeFilter').value,s=$('#status').value,month=monthKey(selectedMonth),rows=data.map((r,i)=>({r,i})).filter(x=>rowMonth(x.r)===month&&(currentTab!=='active'||!['완료','보류'].includes(x.r[3]))&&(!q||x.r.join(' ').toLowerCase().includes(q))&&(w==='all'||x.r[2]===w)&&(t==='all'||x.r[12]===t)&&(s==='all'||x.r[3]===s));return completionSort?rows.sort(compareCompletionDate):rows.sort((a,b)=>Number(newRows.has(b.i))-Number(newRows.has(a.i))||(newRows.has(a.i)?b.i-a.i:a.i-b.i))}
 function updateCompletionSortButton(){const button=$('#completionDateSort'),header=button?.closest?.('th'),icon=$('#completionSortIcon');if(!button)return;const ascending=completionSort==='asc';button.title='운영 반영일 '+(ascending?'내림차순':'오름차순')+' 정렬';button.setAttribute('aria-label','운영 반영일 '+(ascending?'오름차순, 내림차순으로 변경':'내림차순, 오름차순으로 변경'));if(header)header.setAttribute('aria-sort',ascending?'ascending':completionSort==='desc'?'descending':'none');if(icon)icon.textContent=ascending?'↑':completionSort==='desc'?'↓':'↕'}
 function toggleCompletionSort(){completionSort=completionSort==='asc'?'desc':'asc';updateCompletionSortButton();render()}
 function cell(v,r,c,cl=''){return `<td class="editable ${cl}" contenteditable="true" data-row="${r}" data-col="${c}" spellcheck="false">${esc(v)}</td>`}
