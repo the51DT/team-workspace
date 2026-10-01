@@ -4,9 +4,9 @@ let homeVisible=true;
 const workspaceDrafts=new Map();
 const pendingLedgerMonths=new Map();
 function storageKey(key){return currentWorkspace==='cx'?key:currentWorkspace+':'+key}
-const statusClasses={"배정":"status-assigned","진행중":"status-in-progress","내부검수":"status-internal-review","검수요청":"status-review-requested","반영대기":"status-pending-release","완료":"status-completed","취소":"status-cancelled","보류":"status-on-hold"};
+const statusClasses={"배정":"status-assigned","진행중":"status-in-progress","내부검수":"status-internal-review","검수요청":"status-review-requested","반영대기":"status-pending-release","완료":"status-completed","보류":"status-on-hold"};
 const statusClass=value=>Object.hasOwn(statusClasses,value)?statusClasses[value]:'';
-const statuses=['배정','진행중','내부검수','검수요청','반영대기','완료','취소','보류'];
+const statuses=['배정','진행중','내부검수','검수요청','반영대기','완료','보류'];
 let workers=[];
 function visibleWorkers(){return workers}
 let serverConnected=false;
@@ -23,7 +23,7 @@ function normalize(row){
   const values=row.map(v=>String(v??''));
   if(values.length===9)values.splice(7,0,'','');
   while(values.length<13)values.push('');
-  values[3]=values[3]==='진행'?'진행중':values[3]==='이월'?'취소':values[3];
+  values[3]=values[3]==='진행'?'진행중':['이월','취소'].includes(values[3])?'보류':values[3];
   return values;
 }
 const HOSTED_APP_URL='https://the51dt.github.io/team-workspace/';
@@ -186,7 +186,7 @@ function copyPreviousMonth(targetMonth=selectedMonth){
  const target=monthKey(targetMonth),previous=monthKey(new Date(targetMonth.getFullYear(),targetMonth.getMonth()-1,1));
  const drafts=new Set([...newRows].map(i=>data[i])),duplicates=new Set(),processed=new Set();
  let count=0;
- data.filter(row=>rowMonth(row)===previous&&!['보류','취소','완료'].includes(row[3])).forEach(row=>{
+ data.filter(row=>rowMonth(row)===previous&&row[3]!=='완료').forEach(row=>{
   let meta=monthMeta(row);
   if(!meta){meta={id:Date.now().toString(36)+'-'+Math.random().toString(36).slice(2),month:previous};row[7]=MONTH_META+JSON.stringify(meta)}
   if(processed.has(meta.id))return;
@@ -238,7 +238,7 @@ async function carryOver(){
 }
 function completionDateValue(value){const normalized=dateValue(value);if(!normalized)return null;const time=Date.parse(normalized+'T00:00:00');return Number.isFinite(time)?time:null}
 function compareCompletionDate(a,b){const av=completionDateValue(a.r[4]),bv=completionDateValue(b.r[4]);if(av===null&&bv===null)return a.i-b.i;if(av===null)return 1;if(bv===null)return -1;return completionSort==='asc'?av-bv||a.i-b.i:bv-av||a.i-b.i}
-function selected(){let q=$('#search').value.toLowerCase(),w=$('#worker').value,s=$('#status').value,month=monthKey(selectedMonth),rows=data.map((r,i)=>({r,i})).filter(x=>rowMonth(x.r)===month&&(currentTab!=='active'||!['완료','보류','취소'].includes(x.r[3]))&&(!q||x.r.join(' ').toLowerCase().includes(q))&&(w==='all'||x.r[2]===w)&&(s==='all'||x.r[3]===s));return completionSort?rows.sort(compareCompletionDate):rows.sort((a,b)=>Number(newRows.has(b.i))-Number(newRows.has(a.i))||(newRows.has(a.i)?b.i-a.i:a.i-b.i))}
+function selected(){let q=$('#search').value.toLowerCase(),w=$('#worker').value,s=$('#status').value,month=monthKey(selectedMonth),rows=data.map((r,i)=>({r,i})).filter(x=>rowMonth(x.r)===month&&(currentTab!=='active'||!['완료','보류'].includes(x.r[3]))&&(!q||x.r.join(' ').toLowerCase().includes(q))&&(w==='all'||x.r[2]===w)&&(s==='all'||x.r[3]===s));return completionSort?rows.sort(compareCompletionDate):rows.sort((a,b)=>Number(newRows.has(b.i))-Number(newRows.has(a.i))||(newRows.has(a.i)?b.i-a.i:a.i-b.i))}
 function updateCompletionSortButton(){const button=$('#completionDateSort'),header=button?.closest?.('th'),icon=$('#completionSortIcon');if(!button)return;const ascending=completionSort==='asc';button.title='운영 반영일 '+(ascending?'내림차순':'오름차순')+' 정렬';button.setAttribute('aria-label','운영 반영일 '+(ascending?'오름차순, 내림차순으로 변경':'내림차순, 오름차순으로 변경'));if(header)header.setAttribute('aria-sort',ascending?'ascending':completionSort==='desc'?'descending':'none');if(icon)icon.textContent=ascending?'↑':completionSort==='desc'?'↓':'↕'}
 function toggleCompletionSort(){completionSort=completionSort==='asc'?'desc':'asc';updateCompletionSortButton();render()}
 function cell(v,r,c,cl=''){return `<td class="editable ${cl}" contenteditable="true" data-row="${r}" data-col="${c}" spellcheck="false">${esc(v)}</td>`}

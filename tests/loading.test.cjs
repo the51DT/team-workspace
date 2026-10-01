@@ -3,12 +3,17 @@ const assert=require('node:assert/strict');
 const fs=require('node:fs');
 const vm=require('node:vm');
 const source=fs.readFileSync(require('node:path').join(__dirname,'../app.js'),'utf8');
+const NativeDate=Date;
+class FixedDate extends NativeDate{
+  constructor(...args){super(...(args.length?args:['2026-09-30T12:00:00+09:00']))}
+  static now(){return new NativeDate('2026-09-30T12:00:00+09:00').getTime()}
+}
 function app(handler,storage=new Map(),hash='#cx',guest=false,sessionStore=new Map(),origin='https://the51dt.github.io'){
   const location={hash,origin,pathname:'/team-workspace/index.html',search:''};
   const navigate=(_state,_title,url)=>{location.hash=url.includes('#')?url.slice(url.indexOf('#')):''};
   const elements=new Map(),requests=[];
   const element=id=>{if(!elements.has(id))elements.set(id,{value:['#worker','#status'].includes(id)?'all':'',innerHTML:'',textContent:'',classList:{active:false,toggle(_name,on){this.active=on}},addEventListener(){},setAttribute(){},focus(){}});return elements.get(id)};
-  const context=vm.createContext({window:{location,history:{pushState:navigate,replaceState:navigate},addEventListener(){},APPS_SCRIPT_URL:'https://example.test/exec',WORKERS:['작업자 A']},URL,AbortSignal,console,
+  const context=vm.createContext({window:{location,history:{pushState:navigate,replaceState:navigate},addEventListener(){},APPS_SCRIPT_URL:'https://example.test/exec',WORKERS:['작업자 A']},URL,AbortSignal,console,Date:FixedDate,
     fetch:async(url,options)=>{const payload=options.method==='GET'?Object.fromEntries(new URL(url).searchParams):JSON.parse(options.body);requests.push({url,payload,method:options.method,headers:options.headers});const result=await handler(payload);return {ok:true,json:async()=>result}},
     localStorage:{get length(){return storage.size},key:i=>[...storage.keys()][i]??null,getItem:key=>storage.get(key)??null,setItem:(key,value)=>storage.set(key,value),removeItem:key=>storage.delete(key)},sessionStorage:{get length(){return sessionStore.size},key:i=>[...sessionStore.keys()][i]??null,getItem:key=>sessionStore.get(key)??null,setItem:(key,value)=>sessionStore.set(key,value),removeItem:key=>sessionStore.delete(key)},alert(){},confirm:()=>true,requestAnimationFrame:fn=>fn(),setTimeout,
     document:{querySelector:element,querySelectorAll:()=>[],...(guest?{getElementById:element}:{})}});
@@ -364,10 +369,11 @@ test('select all toggles rendered deletion rows and reflects partial and empty s
  page.run('deleteMode=false;updateDeleteButton()');assert.equal(page.element('#selectAllRows').hidden,true);
 });
 
-test('active tab excludes completed, held and carried-over tasks',async()=>{
+test('cancel is migrated to held and is not offered as a stage',async()=>{
  const tasks=['배정','진행중','내부검수','검수요청','반영대기','완료','보류','취소'].map(stage=>{const row=[...task];row[3]=stage;return row});
  const page=app(()=>({ok:true,tasks}));await page.ready;
  page.run("currentTab='active'");assert.equal(page.run('selected().length'),5);
+ assert.equal(page.run("statuses.includes('취소')"),false);assert.equal(page.run("data[7][3]"),'보류');
  page.element('#worker').value='다른 작업자';assert.equal(page.run('selected().length'),0);
  page.element('#worker').value='all';page.run("currentTab='list'");assert.equal(page.run('selected().length'),8);
 });
@@ -399,24 +405,24 @@ test('multiple drafts display first but are appended on save, with failures reta
 test('legacy statuses migrate and monthly copies persist without duplicating after edits',async()=>{
  let tasks=['보류','이월','완료','진행'].map((status,i)=>['2026-12-19',''+i,'작업자 A',status,'','업무 '+i,'메모','1','0']);
  const page=app(p=>{if(p.action==='save'){tasks=p.tasks;return {ok:true}}return {ok:true,tasks}});await page.ready;
- assert.equal(page.run('data[1][3]'),'취소');assert.equal(page.run('data[3][3]'),'진행중');
+ assert.equal(page.run('data[1][3]'),'보류');assert.equal(page.run('data[3][3]'),'진행중');
  await page.run('selectedMonth=new Date(2026,11,1);carryOver()');
- assert.equal(page.run('selected().length'),1);assert.equal(page.run('data.length'),5);
+ assert.equal(page.run('selected().length'),1);assert.equal(page.run('data.length'),7);
  assert.equal(page.run('selected()[0].r[3]'),'진행중');
- page.run("remember(4,5,'수정된 복사 업무')");await page.run('saveAll()');await page.run('load()');
- assert.equal(page.run('data.length'),5);assert.equal(page.run('selected().length'),1);
- await page.run('changeMonth(-1);carryOver()');assert.equal(await page.run('data.length'),5);
+ page.run("remember(selected()[0].i,5,'수정된 복사 업무')");await page.run('saveAll()');await page.run('load()');
+ assert.equal(page.run('data.length'),7);assert.equal(page.run('selected().length'),1);
+ await page.run('changeMonth(-1);carryOver()');assert.equal(await page.run('data.length'),7);
 });
 
-test('all unfinished stages copy while terminal stages remain in the original month',async()=>{
+test('all stages except completed copy to the next month',async()=>{
  const stages=['배정','진행중','내부검수','검수요청','반영대기','보류','취소','완료'];
  const page=app(()=>({ok:true,tasks:stages.map((stage,i)=>['2026-09-19',''+i,'작업자 A',stage,'','업무 '+i,'비고','2','1'])}));await page.ready;
  await page.run('selectedMonth=new Date(2026,8,1);carryOver()');
- assert.equal(page.run('selected().length'),5);assert.equal(page.run('data.length'),13);
+ assert.equal(page.run('selected().length'),5);assert.equal(page.run('data.length'),15);
  assert.equal(page.run("selected().every(({r})=>r[0]==='2026-09-19'&&r[6]==='비고'&&r[9]===''&&r[10]==='')"),true);
  page.run("selectTab('list');changeMonth(-1)");assert.equal(page.run('selected().length'),8);
  assert.equal(page.run("selected().every(({r})=>r[9]==='2'&&r[10]==='1')"),true);
- await page.run('carryOver()');assert.equal(await page.run('data.length'),13);
+ await page.run('carryOver()');assert.equal(await page.run('data.length'),15);
 });
 
 test('month navigation cannot go before September 2026 and never creates copies',async()=>{
