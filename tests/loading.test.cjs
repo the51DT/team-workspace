@@ -536,7 +536,7 @@ test('saving after carry over backs up the original enterprise month',async()=>{
  let backup;
  const enterprise=[...task.slice(0,7),'','',...task.slice(7),'2026-09-24'];enterprise[5]='기업 업무';
  const page=app(p=>{
-  if(p.action==='backupLedger'){backup=p;return {ok:true,workspace:p.workspace,sheet:'웹앱_기업_업무대장',rowCount:p.rows.length}}
+  if(p.action==='backupLedger'){backup=p;return {ok:true,workspace:p.workspace,sheet:'기업_2026-09',rowCount:p.rows.length}}
   return {ok:true,workspace:p.workspace,tasks:p.workspace==='enterprise'?[enterprise]:[]};
  });
  await page.ready;await page.run("switchWorkspace('enterprise')");

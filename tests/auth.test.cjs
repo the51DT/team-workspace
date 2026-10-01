@@ -171,6 +171,20 @@ test('password bounds and Korean-midnight sessions enforce the expiry policy',()
  app.run('logoutPayload('+JSON.stringify(session.token)+')');assert.throws(()=>app.run('requireSession('+JSON.stringify(session.token)+')'));
 });
 
+test('Google Sheets store workspace timestamps as KST ISO and private logs as labeled KST',()=>{
+ const app=harness();setupAdmin(app);
+ const accountRow=app.sheets.get('웹앱_계정').rows[1];
+ assert.match(accountRow[6],/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2} KST$/);
+ const session=app.run("loginPayload({username:'admin',password:'password1'})");
+ assert.match(app.sheets.get('웹앱_세션').rows[1][2],/^\d{4}-\d{2}-\d{2} 00:00:00 KST$/);
+ for(const [workspace,sheet] of [['cx','웹앱_CX_업무데이터'],['enterprise','웹앱_기업_업무데이터'],['aldot','웹앱_알닷_업무데이터']]){
+  const result=app.run("savePayload([['9/21','','담당자','배정','','업무','','','']], "+JSON.stringify(workspace)+", requireSession("+JSON.stringify(session.token)+"))");
+  assert.match(result.updatedAt,/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\+09:00$/);
+  assert.match(app.sheets.get(sheet).rows[1][1],/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\+09:00$/);
+ }
+ assert.match(app.sheets.get('웹앱_수정이력').rows[1][0],/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2} KST$/);
+});
+
 test('session lookup rejects partial, wrong-case, expired and disabled credentials',()=>{
  const app=harness();setupAdmin(app);
  const session=app.run("loginPayload({username:'admin',password:'password1'})");

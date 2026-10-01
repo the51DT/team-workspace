@@ -422,6 +422,8 @@ if(typeof ResizeObserver!=='undefined'){
 function formatHistoryTime(value){
  const text=String(value??'').replace(/&#(?:x20|32);?/gi,' ').trim();
  if(!text)return '';
+ const kst=text.match(/^(\d{4}-\d{2}-\d{2}) (\d{2}:\d{2})(?::\d{2})? KST$/);
+ if(kst)return kst[1]+' '+kst[2];
  const date=new Date(text);
  if(!Number.isFinite(date.getTime()))return text;
  return new Date(date.getTime()+9*60*60*1000).toISOString().slice(0,16).replace('T',' ');

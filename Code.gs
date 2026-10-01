@@ -5,9 +5,15 @@ const LEDGER_NAMES={cx:'CX',enterprise:'기업',aldot:'알닷'};
 const AUTH_SHEET='웹앱_계정', SESSION_SHEET='웹앱_세션', AUDIT_SHEET='웹앱_수정이력';
 const ROLES=['admin','editor'];
 const KST_OFFSET_MS=9*60*60*1000,DAY_MS=24*60*60*1000;
+function kstTimestamp(value){return new Date((value||new Date()).getTime()+KST_OFFSET_MS).toISOString().slice(0,19).replace('T',' ')+' KST';}
+function kstIsoTimestamp(value){return new Date((value||new Date()).getTime()+KST_OFFSET_MS).toISOString().slice(0,19)+'+09:00';}
+function timestampMillis(value){
+ const match=String(value||'').match(/^(\d{4})-(\d{2})-(\d{2}) (\d{2}):(\d{2}):(\d{2}) KST$/);
+ return match?Date.UTC(+match[1],+match[2]-1,+match[3],+match[4]-9,+match[5],+match[6]):new Date(value).getTime();
+}
 function nextSessionMidnight(now=Date.now()){return (Math.floor((now+KST_OFFSET_MS)/DAY_MS)+1)*DAY_MS-KST_OFFSET_MS;}
 function sessionExpiry(value){
- const stored=new Date(value).getTime();
+ const stored=timestampMillis(value);
  // Also align legacy 24-hour expiry values to the intervening Korean midnight.
  return Math.floor((stored+KST_OFFSET_MS)/DAY_MS)*DAY_MS-KST_OFFSET_MS;
 }
@@ -126,7 +132,7 @@ function backupLedgerPayload(headers,rows,workspace,month) {
     sheet.getRange(1,1,values.length,headers.length).setValues(values);
     if(sheet.setFrozenRows)sheet.setFrozenRows(1);
     SpreadsheetApp.flush();
-    return {ok:true,workspace:workspace,sheet:name,rowCount:rows.length,backedUpAt:new Date().toISOString()};
+    return {ok:true,workspace:workspace,sheet:name,rowCount:rows.length,backedUpAt:kstTimestamp()};
   }finally{lock.releaseLock();}
 }
 function savePayload(tasks, workspace, user) {
@@ -139,11 +145,11 @@ function savePayload(tasks, workspace, user) {
   const lock = LockService.getScriptLock();
   lock.waitLock(10000);
   try {
-    const updatedAt = new Date().toISOString();
+    const updatedAt = kstIsoTimestamp();
     const dataSheet=getDataSheet(workspace),old=dataSheet.getRange('A2:B2').getValues()[0];
     const previous=old[0]?JSON.parse(old[0]):[];
     dataSheet.getRange('A2:B2').setValues([[json, updatedAt]]);
-    if(user)appendAudit(workspace,user,previous,tasks,updatedAt);
+    if(user)appendAudit(workspace,user,previous,tasks,kstTimestamp());
     SpreadsheetApp.flush();
     return { ok: true, workspace: workspace, updatedAt: updatedAt };
   } finally {
@@ -219,7 +225,7 @@ function passwordMatches(p,user){
  if(valid)try{if(cache)cache.put(key,'1',21600);}catch{}
  return valid;
 }
-function account(u,p,n,r){u=cleanUsername(u);p=cleanPassword(p);n=String(n||'').trim();if(!n)throw new Error('이름을 입력해 주세요.');if(ROLES.indexOf(r)<0)throw new Error('권한이 올바르지 않습니다.');const sh=authSheet(),rows=sh.getLastRow()>1?sh.getRange(2,1,sh.getLastRow()-1,7).getValues():[];if(rows.some(x=>String(x[0]).toLowerCase()===u))throw new Error('이미 존재하는 아이디입니다.');const salt=Utilities.getUuid();sh.appendRow([u,n,r,salt,passwordHash(p,salt),true,new Date().toISOString()]);return {username:u,name:n,role:r};}
+function account(u,p,n,r){u=cleanUsername(u);p=cleanPassword(p);n=String(n||'').trim();if(!n)throw new Error('이름을 입력해 주세요.');if(ROLES.indexOf(r)<0)throw new Error('권한이 올바르지 않습니다.');const sh=authSheet(),rows=sh.getLastRow()>1?sh.getRange(2,1,sh.getLastRow()-1,7).getValues():[];if(rows.some(x=>String(x[0]).toLowerCase()===u))throw new Error('이미 존재하는 아이디입니다.');const salt=Utilities.getUuid();sh.appendRow([u,n,r,salt,passwordHash(p,salt),true,kstTimestamp()]);return {username:u,name:n,role:r};}
 function setupAdmin(r){const lock=LockService.getScriptLock();lock.waitLock(10000);try{if(hasUsers())throw new Error('초기 관리자 설정이 완료되었습니다.');return {ok:true,user:account(r.username,r.password,r.name,'admin')};}finally{lock.releaseLock();}}
 function createUserPayload(r){return {ok:true,user:account(r.username,r.password,r.name,r.role)};}
 // Cache only row positions. Always reread live values before authenticating.
@@ -253,8 +259,8 @@ function issueLoginSession(user){
  try{
   const latest=findUser(user.username);
   if(!latest||!latest.active||ROLES.indexOf(latest.role)<0||latest.hash!==user.hash||latest.salt!==user.salt)throw new Error('계정 정보가 변경되었습니다. 다시 로그인해 주세요.');
-  const token=Utilities.getUuid()+Utilities.getUuid().replace(/-/g,''),expires=new Date(nextSessionMidnight()).toISOString();
-  sessionSheet().appendRow([token,user.username,expires]);
+  const token=Utilities.getUuid()+Utilities.getUuid().replace(/-/g,''),expiryDate=new Date(nextSessionMidnight()),expires=expiryDate.toISOString();
+  sessionSheet().appendRow([token,user.username,kstTimestamp(expiryDate)]);
   return {ok:true,token:token,user:publicUser(latest),expiresAt:expires};
  }finally{lock.releaseLock();}
 }
