@@ -612,10 +612,12 @@ test('select option reuse preserves row bindings, selection and escaping',async(
  assert.match(other,/<option selected>&lt;B&gt;/);assert.equal(page.run('optionCache.size'),2);
 });
 
-test('file and unsupported origins cannot send any API requests',async()=>{
+test('file and unsupported origins show a data-free preview and cannot send API requests',async()=>{
  for(const origin of ['null','file:///C:/app/index.html','ftp://example.com']){
   const page=app(()=>{throw Error('must not request')},new Map(),'#cx',true,new Map(),origin);await page.ready;
-  assert.equal(page.requests.length,0);assert.equal(page.element('#authForm').hidden,true);
+  assert.equal(page.requests.length,0);assert.equal(page.element('#authPage').hidden,true);assert.equal(page.element('#workspacePage').hidden,false);
+  assert.match(page.element('#saveStatus').textContent,/화면 미리보기/);assert.equal(page.element('#saveAll').disabled,true);
+  await page.run("switchWorkspace('enterprise')");assert.equal(page.run('currentWorkspace'),'enterprise');assert.equal(page.requests.length,0);
   for(const action of ['load','login','save'])await assert.rejects(page.run('postJson('+JSON.stringify({action})+')'),/직접 실행/);
  }
 });

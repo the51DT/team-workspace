@@ -9,7 +9,7 @@ const statusClass=value=>Object.hasOwn(statusClasses,value)?statusClasses[value]
 const statuses=['배정','진행중','내부검수','검수요청','반영대기','완료','보류'];
 let workers=[];
 function visibleWorkers(){return workers}
-let serverConnected=false;
+let serverConnected=false,previewMode=false;
 let authToken='',currentUser=null,setupRequired=false,restoringAuth=false;
 const canEdit=()=>currentUser&&['admin','editor'].includes(currentUser.role);
 let saving=false;
@@ -34,10 +34,13 @@ function clearLegacyDataCache(){
   for(let i=storage.length-1;i>=0;i--){const key=storage.key(i);if(key&&(key.startsWith('workflow-snapshot-')||/^(?:(?:enterprise|aldot):)?cx-workflow-edits-v\d+$/.test(key)))storage.removeItem(key);}
  }catch{}
 }
-function showHostedOnly(){
- $('#authPage').hidden=false;$('#homePage').hidden=true;$('#workspacePage').hidden=true;$('#authForm').hidden=true;
- $('#authTitle').textContent='로컬 서버 또는 배포 사이트에서 접속해 주세요';
- $('#authDescription').textContent='file://로 직접 연 HTML에서는 업무 데이터를 조회할 수 없습니다. localhost·127.0.0.1의 로컬 서버 또는 배포 사이트를 이용해 주세요. '+HOSTED_APP_URL;
+function showFilePreview(){
+ previewMode=true;authToken='file-preview';currentUser={name:'화면 미리보기',role:'preview'};
+ $('#authPage').hidden=true;$('#homePage').hidden=false;$('#workspacePage').hidden=true;
+ $$('[data-login],[data-logout],[data-password]').forEach(el=>el.hidden=true);
+ $('#usersButton').hidden=true;$('#currentUser').textContent='화면 미리보기 · 데이터 연결 안 됨';
+ const key=window.location.hash.slice(1);
+ if(Object.hasOwn(workspaceNames,key))switchWorkspace(key);else showHome();
 }
 let pendingRequests=0;
 function updateLoadingBar(delta){pendingRequests=Math.max(0,pendingRequests+delta);const bar=$('#loadingBar');if(!bar)return;const active=pendingRequests>0;bar.classList?.toggle('active',active);bar.setAttribute?.('aria-hidden',String(!active))}
@@ -289,6 +292,14 @@ function updateWorkspaceHeader(){
 async function switchWorkspace(key){
  if(!authToken){openLogin();return;}
  if(saving||!Object.hasOwn(workspaceNames,key))return;
+ if(previewMode){
+  currentWorkspace=key;data=[];workers=[];newRows=new Set();edits={};serverConnected=false;
+  showWorkspacePage(key);$('#search').value='';filters();updateMonth();updateWorkspaceHeader();selectTab('active');
+  $('#saveStatus').textContent='● 화면 미리보기 · 서버 데이터는 불러오지 않습니다';
+  $('#workspacePage').classList.toggle('read-only',true);
+  ['refresh','newTask','carryOver','deleteToggle','saveAll','exportCsv','historyButton'].forEach(id=>{const el=$('#'+id);if(el)el.disabled=true});
+  return;
+ }
  if(key!==currentWorkspace&&loading)leavePendingLoad();
  showWorkspacePage(key);
  if(key===currentWorkspace){updateWorkspaceHeader();selectTab('active');if(!serverConnected)await load();return}
@@ -463,6 +474,7 @@ function configureLogin(){
 const GUIDE_SEEN_KEY='workflow-login-guide-day';
 let guideSeenDay='';
 function showHomeGuide(now=new Date()){
+ if(previewMode)return;
  if($('#homePage').hidden||!$('#authPage').hidden||!homeVisible)return;
  const day=new Date(now.getTime()+9*60*60*1000).toISOString().slice(0,10);
  if(day>'2026-10-31'||guideSeenDay===day)return;
@@ -534,4 +546,4 @@ $('#historyMore').onclick=()=>fetchHistory(true);
 
 
 clearLegacyDataCache();
-if(!isHostedApp())showHostedOnly();else if(typeof document.getElementById==='function')initAuth();else restoreRoute();
+if(!isHostedApp())showFilePreview();else if(typeof document.getElementById==='function')initAuth();else restoreRoute();
