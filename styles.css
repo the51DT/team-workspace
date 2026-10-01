@@ -31,6 +31,10 @@ aside {
   display: flex;
   flex-direction: column;
 }
+aside > div{
+  display: flex;
+  flex-direction: column;
+}
 aside h2 {
   margin: 0 0 55px;
   font-size: 18px;
@@ -38,12 +42,15 @@ aside h2 {
 aside h2 span {
   color: var(--l);
 }
-aside > small {
+aside > div > small {
   color: #789589;
   font-size: 10px;
   letter-spacing: 1.5px;
   margin: 0 12px 10px;
 }
+aside > div:nth-of-type(2) > small{
+  margin-top: 32px;
+} 
 aside button {
   border: 0;
   border-radius: 9px;

@@ -1,183 +1,200 @@
 <!DOCTYPE html>
 <html lang="ko">
-  <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width,initial-scale=1" />
-    <title>유플러스 업무 관리</title>
-    <link
-      rel="icon"
-      type="image/svg+xml"
-      href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%230F9D58'/%3E%3Crect x='8' y='10' width='16' height='14' rx='2' fill='%23ffffff' opacity='0.4'/%3E%3Crect x='6' y='7' width='16' height='14' rx='2' fill='%23ffffff'/%3E%3Cline x1='9' y1='11' x2='19' y2='11' stroke='%230F9D58' stroke-width='1.5' stroke-linecap='round'/%3E%3Cline x1='9' y1='15' x2='15' y2='15' stroke='%23cbd5e1' stroke-width='1.5' stroke-linecap='round'/%3E%3Cline x1='9' y1='19' x2='15' y2='19' stroke='%23cbd5e1' stroke-width='1.5' stroke-linecap='round'/%3E%3Cpolyline points='17,17 18.5,18.5 21,15.5' fill='none' stroke='%230F9D58' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E"
-    />
-    <link
-      rel="stylesheet"
-      href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard/dist/web/static/pretendard.css"
-      media="print"
-      onload="this.media='all'"
-    />
-    <link rel="stylesheet" href="styles.css?v=20260924-1" />
-  </head>
-  <body>
-    <div
-      id="loadingBar"
-      class="loading-bar"
-      role="progressbar"
-      aria-label="불러오는 중"
-      aria-hidden="true"
-    >
-      <span></span>
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>유플러스 업무 관리</title>
+  <link rel="icon" type="image/svg+xml"
+    href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%230F9D58'/%3E%3Crect x='8' y='10' width='16' height='14' rx='2' fill='%23ffffff' opacity='0.4'/%3E%3Crect x='6' y='7' width='16' height='14' rx='2' fill='%23ffffff'/%3E%3Cline x1='9' y1='11' x2='19' y2='11' stroke='%230F9D58' stroke-width='1.5' stroke-linecap='round'/%3E%3Cline x1='9' y1='15' x2='15' y2='15' stroke='%23cbd5e1' stroke-width='1.5' stroke-linecap='round'/%3E%3Cline x1='9' y1='19' x2='15' y2='19' stroke='%23cbd5e1' stroke-width='1.5' stroke-linecap='round'/%3E%3Cpolyline points='17,17 18.5,18.5 21,15.5' fill='none' stroke='%230F9D58' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E" />
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard/dist/web/static/pretendard.css"
+    media="print" onload="this.media='all'" />
+  <link rel="stylesheet" href="styles.css?v=20260924-1" />
+  <link rel="stylesheet" href="schedule.css?v=20261001-11" />
+</head>
+
+<body>
+  <div id="loadingBar" class="loading-bar" role="progressbar" aria-label="불러오는 중" aria-hidden="true">
+    <span></span>
+  </div>
+  <div id="authPage" class="auth-page">
+    <form id="authForm" class="auth-card">
+      <p class="home-brand">▥ WORK<span>FLOW</span></p>
+      <h1 id="authTitle">로그인</h1>
+      <p id="authDescription">업무 관리 계정으로 로그인해 주세요.</p>
+      <label id="nameField" hidden>이름<input id="loginName" autocomplete="name" /></label>
+      <label>아이디<input id="loginUsername" autocomplete="username" required /></label>
+      <label>비밀번호<input id="loginPassword" type="password" autocomplete="current-password" minlength="8" maxlength="20"
+          required /></label>
+      <button id="loginSubmit" type="submit">로그인</button>
+      <p id="authError" role="alert"></p>
+    </form>
+  </div>
+  <div id="homePage" class="home-page" hidden>
+    <div class="account-actions">
+      <button type="button" data-login>로그인</button>
+      <button id="usersButton" type="button" hidden>계정 관리</button>
+      <button type="button" data-password hidden>비밀번호 변경</button>
+      <button type="button" data-logout hidden>로그아웃</button>
     </div>
-    <div id="authPage" class="auth-page">
-      <form id="authForm" class="auth-card">
-        <p class="home-brand">▥ WORK<span>FLOW</span></p>
-        <h1 id="authTitle">로그인</h1>
-        <p id="authDescription">업무 관리 계정으로 로그인해 주세요.</p>
-        <label id="nameField" hidden
-          >이름<input id="loginName" autocomplete="name"
-        /></label>
-        <label
-          >아이디<input id="loginUsername" autocomplete="username" required
-        /></label>
-        <label
-          >비밀번호<input
-            id="loginPassword"
-            type="password"
-            autocomplete="current-password"
-            minlength="8"
-            maxlength="20"
-            required
-        /></label>
-        <button id="loginSubmit" type="submit">로그인</button>
-        <p id="authError" role="alert"></p>
-      </form>
+    <div class="home-content">
+      <p class="home-brand">▥ WORK<span>FLOW</span></p>
+      <h1>업무 관리</h1>
+      <p class="home-description">관리할 워크스페이스를 선택해 주세요.</p>
+      <nav class="workspace-cards" aria-label="워크스페이스 선택">
+        <button type="button" data-workspace="cx">
+          <strong>CX</strong><span>CX 업무 관리 <b aria-hidden="true">↗</b></span>
+        </button>
+        <button type="button" data-workspace="enterprise">
+          <strong>기업</strong><span>기업 업무 관리 <b aria-hidden="true">↗</b></span>
+        </button>
+        <button type="button" data-workspace="aldot">
+          <strong>알닷</strong><span>알닷 업무 관리 <b aria-hidden="true">↗</b></span>
+        </button>
+      </nav>
     </div>
-    <div id="homePage" class="home-page" hidden>
-      <div class="account-actions">
-        <button type="button" data-login>로그인</button>
-        <button id="usersButton" type="button" hidden>계정 관리</button>
-        <button type="button" data-password hidden>비밀번호 변경</button>
-        <button type="button" data-logout hidden>로그아웃</button>
-      </div>
-      <div class="home-content">
-        <p class="home-brand">▥ WORK<span>FLOW</span></p>
-        <h1>업무 관리</h1>
-        <p class="home-description">관리할 워크스페이스를 선택해 주세요.</p>
-        <nav class="workspace-cards" aria-label="워크스페이스 선택">
-          <button type="button" data-workspace="cx">
-            <strong>CX</strong
-            ><span>CX 업무 관리 <b aria-hidden="true">↗</b></span>
-          </button>
-          <button type="button" data-workspace="enterprise">
-            <strong>기업</strong
-            ><span>기업 업무 관리 <b aria-hidden="true">↗</b></span>
-          </button>
-          <button type="button" data-workspace="aldot">
-            <strong>알닷</strong
-            ><span>알닷 업무 관리 <b aria-hidden="true">↗</b></span>
-          </button>
-        </nav>
-      </div>
-    </div>
-    <div id="workspacePage" class="shell" hidden>
-      <aside>
-        <h2>▥ WORK<span>FLOW</span></h2>
+  </div>
+  <div id="workspacePage" class="shell" hidden>
+    <aside>
+      <h2>▥ WORK<span>FLOW</span></h2>
+      <div>
         <small>WORKSPACE</small>
         <button class="active" data-workspace="cx">CX</button>
         <button data-workspace="enterprise">기업</button>
         <button data-workspace="aldot">알닷</button>
-      </aside>
-      <main>
-        <header>
-          <button
-            id="goHome"
-            class="home-button"
-            type="button"
-            aria-label="메인페이지로 이동"
-          >
-            ⌂ 메인
+      </div>
+      <div>
+        <small>CALENDAR</small>
+        <button data-workspace="schedule">휴가 일정</button>
+      </div>
+    </aside>
+    <main>
+      <header>
+        <button id="goHome" class="home-button" type="button" aria-label="메인페이지로 이동">
+          ⌂ 메인
+        </button>
+        <h1>CX 업무 관리</h1>
+        <label id="searchLabel">⌕
+          <input id="search" placeholder="업무명, 작업자, RMS 검색" /></label><button id="refresh" type="button"
+          aria-label="서버에서 최신 업무 불러오기" title="서버에서 최신 업무 불러오기">
+          ↻
+        </button>
+        <div class="workspace-account-actions">
+          <button id="historyButton" type="button">수정 이력</button>
+          <button type="button" data-login>로그인</button>
+          <button type="button" data-password hidden>비밀번호 변경</button>
+          <button id="logoutButton" type="button" data-logout hidden>
+            로그아웃
           </button>
-          <h1>CX 업무 관리</h1>
-          <label
-            >⌕
-            <input id="search" placeholder="업무명, 작업자, RMS 검색" /></label
-          ><button
-            id="refresh"
-            type="button"
-            aria-label="서버에서 최신 업무 불러오기"
-            title="서버에서 최신 업무 불러오기"
-          >
-            ↻
-          </button>
-          <div class="workspace-account-actions">
-            <button id="historyButton" type="button">수정 이력</button>
-            <button type="button" data-login>로그인</button>
-            <button type="button" data-password hidden>비밀번호 변경</button>
-            <button id="logoutButton" type="button" data-logout hidden>
-              로그아웃
-            </button>
-            <span id="currentUser"></span>
-          </div>
-          <i>CX</i>
-        </header>
-        <section>
-          <article class="panel">
-            <div class="panel-toolbar">
-              <div class="month-control">
-                <button
-                  class="icon-button"
-                  id="prevMonth"
-                  type="button"
-                  aria-label="이전 달"
-                >
-                  ‹
-                </button>
-                <strong id="monthLabel" aria-live="polite"></strong>
-                <button
-                  class="icon-button"
-                  id="nextMonth"
-                  type="button"
-                  aria-label="다음 달"
-                >
-                  ›
-                </button>
+          <span id="currentUser"></span>
+        </div>
+        <i>CX</i>
+      </header>
+      <section>
+        <article class="panel">
+          <div class="panel-toolbar">
+            <div class="month-control">
+              <button class="icon-button" id="prevMonth" type="button" aria-label="이전 달">
+                ‹
+              </button>
+              <strong id="monthLabel" aria-live="polite"></strong>
+              <button class="icon-button" id="nextMonth" type="button" aria-label="다음 달">
+                ›
+              </button>
+            </div>
+            <div id="editHint" class="task-actions">
+              <div class="action-group action-group-secondary" role="group" aria-label="업무 정리">
+                <button id="carryOver" type="button">이월</button>
+                <button id="deleteToggle">삭제</button>
               </div>
-              <div id="editHint" class="task-actions">
-                <div
-                  class="action-group action-group-secondary"
-                  role="group"
-                  aria-label="업무 정리"
-                >
-                  <button id="carryOver" type="button">이월</button>
-                  <button id="deleteToggle">삭제</button>
-                </div>
-                <div
-                  class="action-group"
-                  role="group"
-                  aria-label="업무 작성 및 저장"
-                >
-                  <button id="newTask">＋ 새 업무</button>
-                  <button
-                    id="saveAll"
-                    disabled
-                    title="변경사항을 서버에 저장합니다."
-                  >
-                    저장
-                  </button>
-                  <button
-                    id="exportCsv"
-                    type="button"
-                    title="현재 표에 표시된 내용을 CSV 파일로 저장합니다."
-                  >
-                    CSV 저장
-                  </button>
-                </div>
+              <div class="action-group" role="group" aria-label="업무 작성 및 저장">
+                <button id="newTask">＋ 새 업무</button>
+                <button id="saveAll" disabled title="변경사항을 서버에 저장합니다.">
+                  저장
+                </button>
+                <button id="exportCsv" type="button" title="현재 표에 표시된 내용을 CSV 파일로 저장합니다.">
+                  CSV 저장
+                </button>
               </div>
             </div>
-            <div class="tools">
-              <div>
-                <button class="active" data-tab="active">진행중</button>
-                <button data-tab="list">전체</button>
+          </div>
+          <div class="tools">
+            <div>
+              <button class="active" data-tab="active">진행중</button>
+              <button data-tab="list">전체</button>
+            </div>
+            <span><select id="worker">
+                <option value="all">전체 작업자</option>
+              </select><select id="status">
+                <option value="all">전체 단계</option>
+              </select></span>
+          </div>
+          <div id="workSummary" class="work-summary" aria-label="담당자별 작업시간"></div>
+          <div id="list" class="table">
+            <table>
+              <colgroup>
+                <col class="col-registration" />
+                <col class="col-rms" />
+                <col class="col-worker" />
+                <col class="col-work-type" />
+                <col class="col-status" />
+                <col class="col-date" data-enterprise-column hidden />
+                <col class="col-date" />
+                <col class="col-title" />
+                <col class="col-notes" />
+                <col class="col-hours" />
+                <col class="col-adjustment" data-adjustment-column />
+              </colgroup>
+              <thead>
+                <tr>
+                  <th>
+                    <span id="registrationLabel">등록</span><input id="selectAllRows" type="checkbox"
+                      aria-label="현재 목록 전체 선택" title="현재 목록 전체 선택 / 해제" hidden />
+                  </th>
+                  <th>RMS</th>
+                  <th>작업자</th>
+                  <th>기획/퍼블</th>
+                  <th>단계</th>
+                  <th data-enterprise-column hidden>STG 반영일</th>
+                  <th class="sortable-header" aria-sort="none">
+                    <button id="completionDateSort" class="table-sort-button" type="button" title="운영 반영일 오름차순 정렬">
+                      운영 반영일
+                      <span id="completionSortIcon" aria-hidden="true">↕</span>
+                    </button>
+                  </th>
+                  <th class="text-column">업무제목</th>
+                  <th class="text-column">비고</th>
+                  <th>작업시간</th>
+                  <th data-adjustment-column>조정</th>
+                </tr>
+              </thead>
+              <tbody id="rows"></tbody>
+            </table>
+          </div>
+          <footer>
+            <div class="sync-details"><span id="count"></span></div>
+            <span id="saveStatus" role="status" aria-live="polite">● Apps Script 연결 대기</span>
+          </footer>
+        </article>
+      </section>
+      <!-- 휴가 일정:  (schedule.js / schedule.css) -->
+      <section id="scheduleSection" class="sch" hidden>
+        <div class="sch-wrap">
+          <div class="sch-cal-section">
+            <div class="sch-cal-h">
+              <button class="sch-btn sm" id="schPrev" type="button" aria-label="이전 달">◀</button>
+              <h2 id="schTitle"></h2>
+              <button class="sch-btn sm" id="schNext" type="button" aria-label="다음 달">▶</button>
+              <button class="sch-btn sm ghost" id="schToday" type="button">오늘</button>
+              <div class="sch-seg" id="schTabs">
+                <button type="button" data-v="all" class="on">전체</button>
+                <button type="button" data-v="cx" >CX</button>
+                <button type="button" data-v="enterprise">기업</button>
+                <button type="button" data-v="aldot">알닷</button>
               </div>
+              <span class="sch-spacer"></span>
+              <span id="schStatus" class="sch-status" role="status" aria-live="polite"></span>
+              <button class="sch-btn sm" id="schRefresh" type="button" aria-label="서버에서 최신 휴가 일정 불러오기" title="서버에서 최신 휴가 일정 불러오기">↻</button>
               <span
                 ><select id="worker">
                   <option value="all">전체 작업자</option></select
@@ -190,76 +207,29 @@
                 </select></span
               >
             </div>
-            <div
-              id="workSummary"
-              class="work-summary"
-              aria-label="담당자별 작업시간"
-            ></div>
-            <div id="list" class="table">
-              <table>
-                <colgroup>
-                  <col class="col-registration" />
-                  <col class="col-rms" />
-                  <col class="col-worker" />
-                  <col class="col-work-type" />
-                  <col class="col-status" />
-                  <col class="col-date" data-enterprise-column hidden />
-                  <col class="col-date" />
-                  <col class="col-title" />
-                  <col class="col-notes" />
-                  <col class="col-hours" />
-                  <col class="col-adjustment" data-adjustment-column />
-                </colgroup>
-                <thead>
-                  <tr>
-                    <th>
-                      <span id="registrationLabel">등록</span
-                      ><input
-                        id="selectAllRows"
-                        type="checkbox"
-                        aria-label="현재 목록 전체 선택"
-                        title="현재 목록 전체 선택 / 해제"
-                        hidden
-                      />
-                    </th>
-                    <th>RMS</th>
-                    <th>작업자</th>
-                    <th>기획/퍼블</th>
-                    <th>단계</th>
-                    <th data-enterprise-column hidden>STG 반영일</th>
-                    <th class="sortable-header" aria-sort="none">
-                      <button
-                        id="completionDateSort"
-                        class="table-sort-button"
-                        type="button"
-                        title="운영 반영일 오름차순 정렬"
-                      >
-                        운영 반영일
-                        <span id="completionSortIcon" aria-hidden="true"
-                          >↕</span
-                        >
-                      </button>
-                    </th>
-                    <th class="text-column">업무제목</th>
-                    <th class="text-column">비고</th>
-                    <th>작업시간</th>
-                    <th data-adjustment-column>조정</th>
-                  </tr>
-                </thead>
-                <tbody id="rows"></tbody>
-              </table>
+
+            <div class="sch-calendar">
+              <div class="sch-grid" id="schGrid"></div>
             </div>
-            <footer>
-              <div class="sync-details"><span id="count"></span></div>
-              <span id="saveStatus" role="status" aria-live="polite"
-                >● Apps Script 연결 대기</span
-              >
-            </footer>
-          </article>
-        </section>
-      </main>
-    </div>
-    <!-- <dialog
+          </div>
+        </div>
+        <div id="schOverlay" class="sch-overlay"></div>
+        <div class="sch-modal" id="schModal" role="dialog" aria-modal="true" aria-labelledby="schDlgTitle">
+          <div class="sch-dlg">
+            <h3 id="schDlgTitle"></h3>
+            <div class="sch-dlg-body" id="schDlgBody"></div>
+            <div class="foot">
+              <button class="sch-btn danger left" id="schDlgDelete" type="button" hidden>삭제</button>
+              <button class="sch-btn" id="schDlgCancel" type="button">취소</button>
+              <button class="sch-btn primary" id="schDlgSave" type="button">저장</button>
+            </div>
+          </div>
+        </div>
+        <div class="sch-toast" id="schToast" role="status" aria-live="polite"></div>
+      </section>
+    </main>
+  </div>
+  <!-- <dialog
       id="guideDialog"
       aria-labelledby="guideTitle"
       aria-describedby="guideIntro"
@@ -327,93 +297,66 @@
         </div>
       </form>
     </dialog> -->
-    <dialog id="passwordDialog" aria-labelledby="passwordTitle">
-      <form id="passwordForm" class="dialog-card">
-        <header>
-          <h2 id="passwordTitle">비밀번호 변경</h2>
-          <button id="closePassword" type="button" aria-label="닫기">×</button>
-        </header>
-        <div class="dialog-body">
-          <p>
-            현재 비밀번호를 확인한 후 변경합니다. 변경하면 모든 기기에서
-            로그아웃됩니다.
-          </p>
-          <label
-            >현재 비밀번호<input
-              id="currentPassword"
-              type="password"
-              autocomplete="current-password"
-              minlength="8"
-              maxlength="20"
-              required
-          /></label>
-          <label
-            >새 비밀번호<input
-              id="nextPassword"
-              type="password"
-              autocomplete="new-password"
-              minlength="8"
-              maxlength="20"
-              required
-          /></label>
-          <label
-            >새 비밀번호 확인<input
-              id="confirmPassword"
-              type="password"
-              autocomplete="new-password"
-              minlength="8"
-              maxlength="20"
-              required
-          /></label>
-          <p>비밀번호는 8~20자로 입력해 주세요.</p>
-          <p id="passwordMessage" role="status" aria-live="polite"></p>
-          <button id="submitPassword" type="submit">비밀번호 변경</button>
-        </div>
-      </form>
-    </dialog>
-    <dialog id="usersDialog">
-      <form method="dialog" class="dialog-card">
-        <header>
-          <h2>계정 관리</h2>
-          <button value="cancel" aria-label="닫기">×</button>
-        </header>
-        <div class="dialog-body">
-          <div id="userList"></div>
-          <h3>계정 추가</h3>
-          <label>이름<input id="newUserName" /></label
-          ><label>아이디<input id="newUsername" /></label
-          ><label
-            >비밀번호<input
-              id="newUserPassword"
-              type="password"
-              minlength="8"
-              maxlength="20" /></label
-          ><label
-            >권한<select id="newUserRole">
-              <option value="editor">편집자</option>
-              <option value="admin">관리자</option>
-            </select></label
-          ><button id="createUserButton" type="button">계정 생성</button>
-          <p id="userError" role="alert"></p>
-        </div>
-      </form>
-    </dialog>
-    <dialog id="historyDialog">
-      <form method="dialog" class="dialog-card history-card">
-        <header>
-          <h2>수정 이력</h2>
-          <button value="cancel" aria-label="닫기">×</button>
-        </header>
-        <div class="dialog-body">
-          <div id="historyList"></div>
-          <p id="historyError" role="alert"></p>
-          <button id="historyMore" type="button" hidden>
-            이전 내역 더 보기
-          </button>
-        </div>
-      </form>
-    </dialog>
-    <script src="config.js?v=20261001-1"></script>
-    <script src="app.js?v=20261001-6"></script>
-  </body>
+  <dialog id="passwordDialog" aria-labelledby="passwordTitle">
+    <form id="passwordForm" class="dialog-card">
+      <header>
+        <h2 id="passwordTitle">비밀번호 변경</h2>
+        <button id="closePassword" type="button" aria-label="닫기">×</button>
+      </header>
+      <div class="dialog-body">
+        <p>
+          현재 비밀번호를 확인한 후 변경합니다. 변경하면 모든 기기에서
+          로그아웃됩니다.
+        </p>
+        <label>현재 비밀번호<input id="currentPassword" type="password" autocomplete="current-password" minlength="8"
+            maxlength="20" required /></label>
+        <label>새 비밀번호<input id="nextPassword" type="password" autocomplete="new-password" minlength="8" maxlength="20"
+            required /></label>
+        <label>새 비밀번호 확인<input id="confirmPassword" type="password" autocomplete="new-password" minlength="8"
+            maxlength="20" required /></label>
+        <p>비밀번호는 8~20자로 입력해 주세요.</p>
+        <p id="passwordMessage" role="status" aria-live="polite"></p>
+        <button id="submitPassword" type="submit">비밀번호 변경</button>
+      </div>
+    </form>
+  </dialog>
+  <dialog id="usersDialog">
+    <form method="dialog" class="dialog-card">
+      <header>
+        <h2>계정 관리</h2>
+        <button value="cancel" aria-label="닫기">×</button>
+      </header>
+      <div class="dialog-body">
+        <div id="userList"></div>
+        <h3>계정 추가</h3>
+        <label>이름<input id="newUserName" /></label><label>아이디<input id="newUsername" /></label><label>비밀번호<input
+            id="newUserPassword" type="password" minlength="8" maxlength="20" /></label><label>권한<select
+            id="newUserRole">
+            <option value="editor">편집자</option>
+            <option value="admin">관리자</option>
+          </select></label><button id="createUserButton" type="button">계정 생성</button>
+        <p id="userError" role="alert"></p>
+      </div>
+    </form>
+  </dialog>
+  <dialog id="historyDialog">
+    <form method="dialog" class="dialog-card history-card">
+      <header>
+        <h2>수정 이력</h2>
+        <button value="cancel" aria-label="닫기">×</button>
+      </header>
+      <div class="dialog-body">
+        <div id="historyList"></div>
+        <p id="historyError" role="alert"></p>
+        <button id="historyMore" type="button" hidden>
+          이전 내역 더 보기
+        </button>
+      </div>
+    </form>
+  </dialog>
+  <script src="config.js?v=20261001-1"></script>
+  <script src="schedule.js?v=20261001-12"></script>
+  <script src="app.js?v=20261001-6"></script>
+</body>
+
 </html>

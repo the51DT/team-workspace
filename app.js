@@ -1,5 +1,6 @@
 const workspaceNames={cx:'CX',enterprise:'기업',aldot:'알닷'};
 let currentWorkspace='cx';
+let scheduleMode=false;
 let homeVisible=true;
 const workspaceDrafts=new Map();
 const pendingLedgerMonths=new Map();
@@ -40,7 +41,7 @@ function showFilePreview(){
  $$('[data-login],[data-logout],[data-password]').forEach(el=>el.hidden=true);
  $('#usersButton').hidden=true;$('#currentUser').textContent='화면 미리보기 · 데이터 연결 안 됨';
  const key=window.location.hash.slice(1);
- if(Object.hasOwn(workspaceNames,key))switchWorkspace(key);else showHome();
+ if(Object.hasOwn(workspaceNames,key)||key==='schedule')switchWorkspace(key);else showHome();
 }
 let pendingRequests=0;
 function updateLoadingBar(delta){pendingRequests=Math.max(0,pendingRequests+delta);const bar=$('#loadingBar');if(!bar)return;const active=pendingRequests>0;bar.classList?.toggle('active',active);bar.setAttribute?.('aria-hidden',String(!active))}
@@ -290,12 +291,34 @@ function selectTab(tab){
 }
 function updateWorkspaceHeader(){
  const name=workspaceNames[currentWorkspace];
- document.title=name+' 업무 관리';
- $('header h1').textContent=name+' 업무 관리';$('header > i').textContent=name;
- $$('aside [data-workspace]').forEach(b=>b.classList.toggle('active',b.dataset.workspace===currentWorkspace));
+ document.title=scheduleMode?'휴가 일정':name+' 업무 관리';
+ $('header h1').textContent=scheduleMode?'휴가 일정':name+' 업무 관리';$('header > i').textContent=scheduleMode?'휴가':name;
+ $$('aside [data-workspace]').forEach(b=>b.classList.toggle('active',b.dataset.workspace===(scheduleMode?'schedule':currentWorkspace)));
+}
+// 휴가 일정이 서버(별도 스프레드시트)를 부를 때 쓰는 통로. 로그인 만료 처리는 업무 조회와 같다.
+window.scheduleApi={
+ canEdit:()=>Boolean(canEdit()),
+ async request(payload){
+  try{
+   const result=await requestServer(payload);
+   // 업무 조회(load)처럼, 응답의 사용자 정보로 권한 확정 (#schedule 로 바로 들어온 경우에도 편집 가능하게)
+   if(result.user){currentUser=result.user;restoringAuth=false;storeAuthUser(currentUser);applyPermissions(false);}
+   return result;
+  }
+  catch(error){if(authToken&&/로그인이 (필요|만료)/.test(error.message)){clearAuthSession();openLogin();}throw error}
+ }
+};
+// 휴가 일정 화면: 업무 표(section) 대신 캘린더(#scheduleSection)를 보여주고, 업무 전용 헤더 버튼은 숨긴다.
+function setScheduleMode(on){
+ scheduleMode=on;
+ $('#scheduleSection').hidden=!on;
+ $('main > section:not(#scheduleSection)').hidden=on;
+ $('#searchLabel').hidden=on;$('#refresh').hidden=on;$('#historyButton').hidden=on;
+ if(on)window.scheduleView?.show();
 }
 async function switchWorkspace(key){
  if(!authToken){openLogin();return;}
+ if(key==='schedule'){if(saving)return;showWorkspacePage(key);updateWorkspaceHeader();return;}
  if(saving||!Object.hasOwn(workspaceNames,key))return;
  if(previewMode){
   currentWorkspace=key;data=[];workers=[];newRows=new Set();edits={};serverConnected=false;
@@ -324,6 +347,7 @@ function setRoute(key){
  if(window.location.hash!==hash)window.history.pushState(null,'',window.location.pathname+window.location.search+hash);
 }
 function showWorkspacePage(key){closeGuide();
+ setScheduleMode(key==='schedule');
  homeVisible=false;$('#homePage').hidden=true;$('#workspacePage').hidden=false;setRoute(key);
 }
 function showHome(){closeGuide();
@@ -337,8 +361,8 @@ function showHome(){closeGuide();
 async function restoreRoute(){
  if(!authToken){openLogin();return;}
  const key=window.location.hash.slice(1);
- if(saving){window.history.replaceState(null,'',window.location.pathname+window.location.search+(homeVisible?'':'#'+currentWorkspace));return}
- if(Object.hasOwn(workspaceNames,key))await switchWorkspace(key);
+ if(saving){window.history.replaceState(null,'',window.location.pathname+window.location.search+(homeVisible?'':'#'+(scheduleMode?'schedule':currentWorkspace)));return}
+ if(Object.hasOwn(workspaceNames,key)||key==='schedule')await switchWorkspace(key);
  else showHome();
 }
 $$('[data-workspace]').forEach(b=>b.onclick=()=>switchWorkspace(b.dataset.workspace));
@@ -459,7 +483,7 @@ async function initAuth(){
  const token=authToken;restoringAuth=true;currentUser={name:'로그인 확인 중'};
  showAuthenticated();applyPermissions(false);
  // A workspace load already validates the session and returns the user.
- if(Object.hasOwn(workspaceNames,window.location.hash.slice(1))){await restoreRoute();return;}
+ if(Object.hasOwn(workspaceNames,window.location.hash.slice(1))||window.location.hash.slice(1)==='schedule'){await restoreRoute();return;}
  showHome();
  try{
   const result=await requestServer({action:'session'});
