@@ -2,6 +2,13 @@ const DATA_SHEETS = {cx:'웹앱_CX_업무데이터', enterprise:'웹앱_기업_�
 const WORKER_SHEETS = {cx:'웹앱_CX_작업자', enterprise:'웹앱_기업_작업자', aldot:'웹앱_알닷_작업자'};
 const LEDGER_SPREADSHEET_ID='1GE6qRt40qIQH_lol2XD7T9cTPBrrqPk2gDvZy2y-pz8';
 const LEDGER_NAMES={cx:'CX',enterprise:'기업',aldot:'알닷'};
+// ---- 휴가 일정: 업무 데이터와 같은 Apps Script·계정을 쓰되, 데이터는 별도 스프레드시트에 저장합니다. ----
+// 저장할 스프레드시트 주소 https://docs.google.com/spreadsheets/d/<이 부분>/edit 의 ID 를 아래에 넣으세요.
+const SCHEDULE_SPREADSHEET_ID='1GuazloD_daIYBb10hBzoKMkhZS9ATvlD_ro_SMXMeuo';
+const SCHEDULE_SHEET='휴가일정';
+const SCHEDULE_HEADERS=['ID','구분','이름','휴가 종류','시작일','마감일','수정자','수정시각'];
+const SCHEDULE_TEAMS=['ALL','cx','enterprise','aldot'];
+const SCHEDULE_MAX_ROWS=3000;
 const AUTH_SHEET='웹앱_계정', SESSION_SHEET='웹앱_세션', AUDIT_SHEET='웹앱_수정이력';
 const ROLES=['admin','editor'];
 const KST_OFFSET_MS=9*60*60*1000,DAY_MS=24*60*60*1000;
@@ -43,6 +50,8 @@ function doPost(e) {
     if(request.action==='load'){const started=Date.now(),result=loadPayload(request.workspace);requestPhases.loadMs=Date.now()-started;return jsonResponse(Object.assign(result,{user:publicUser(user)}));}
     if(request.action==='save'){requireRole(user,['admin','editor']);return jsonResponse(savePayload(request.tasks,request.workspace,user));}
     if(request.action==='backupLedger'){requireRole(user,['admin','editor']);return jsonResponse(backupLedgerPayload(request.headers,request.rows,request.workspace,request.month));}
+    if(request.action==='loadSchedule')return jsonResponse(Object.assign(loadSchedulePayload(),{user:publicUser(user)}));
+    if(request.action==='saveSchedule'){requireRole(user,['admin','editor']);return jsonResponse(saveSchedulePayload(request.events,user));}
     if(request.action==='saveWorkers'){requireRole(user,['admin']);return jsonResponse(saveWorkersPayload(request.workers,request.workspace));}
     if(request.action==='listUsers'){requireRole(user,['admin']);return jsonResponse({ok:true,users:listUsers()});}
     if(request.action==='createUser'){requireRole(user,['admin']);return jsonResponse(createUserPayload(request));}
@@ -169,6 +178,74 @@ function getDataSheet(workspace) {
     sheet.hideSheet();
   }
   return sheet;
+}
+
+function scheduleSheet(){
+  if(!SCHEDULE_SPREADSHEET_ID)throw new Error('휴가 일정 스프레드시트가 설정되지 않았습니다. Code.gs 의 SCHEDULE_SPREADSHEET_ID 에 스프레드시트 ID를 입력하고 새 버전으로 배포해 주세요.');
+  let book;
+  try{book=SpreadsheetApp.openById(SCHEDULE_SPREADSHEET_ID);}catch(error){throw new Error('휴가 일정 스프레드시트에 접근할 수 없습니다. ID 와 Apps Script 실행 계정의 편집 권한, 접근 승인을 확인해 주세요.');}
+  let sheet=book.getSheetByName(SCHEDULE_SHEET);
+  if(!sheet){
+    sheet=book.insertSheet(SCHEDULE_SHEET);
+    sheet.getRange(1,1,1,SCHEDULE_HEADERS.length).setValues([SCHEDULE_HEADERS]);
+    sheet.setFrozenRows(1);
+  }
+  return sheet;
+}
+// 시트에서 직접 고친 날짜(2026.10.5 등)도 yyyy-mm-dd 로 맞춘다. 읽을 수 없으면 빈 값.
+function scheduleDate(value){
+  const m=String(value||'').trim().match(/^(\d{4})[-./]\s*(\d{1,2})[-./]\s*(\d{1,2})/);
+  if(!m)return '';
+  const p=n=>('0'+n).slice(-2);
+  return m[1]+'-'+p(m[2])+'-'+p(m[3]);
+}
+function loadSchedulePayload(){
+  const sheet=scheduleSheet(),last=sheet.getLastRow();
+  const rows=last>1?sheet.getRange(2,1,last-1,SCHEDULE_HEADERS.length).getDisplayValues():[];
+  const events=rows.filter(r=>r[0]&&scheduleDate(r[4])).map(r=>({id:String(r[0]),ws:SCHEDULE_TEAMS.indexOf(r[1])<0?'ALL':r[1],name:String(r[2]),leave:String(r[3]),start:scheduleDate(r[4]),end:scheduleDate(r[5])}));
+  return {ok:true,events:events,updatedAt:kstIsoTimestamp()};
+}
+function validateSchedule(events){
+  if(!Array.isArray(events))throw new Error('휴가 일정 데이터가 올바르지 않습니다.');
+  if(events.length>SCHEDULE_MAX_ROWS)throw new Error('휴가 일정은 최대 '+SCHEDULE_MAX_ROWS+'건까지 저장할 수 있습니다.');
+  const ids={};
+  return events.map(function(e){
+    if(!e||typeof e!=='object')throw new Error('휴가 일정 데이터가 올바르지 않습니다.');
+    const id=String(e.id||''),name=String(e.name||'').trim(),leave=String(e.leave||'').trim(),start=scheduleDate(e.start),end=e.end?scheduleDate(e.end):'';
+    if(!id||id.length>64||ids[id])throw new Error('휴가 일정 ID가 올바르지 않거나 중복됩니다.');
+    if(!name||name.length>100)throw new Error('이름은 1~100자로 입력해 주세요.');
+    if(leave.length>30)throw new Error('휴가 종류가 너무 깁니다.');
+    if(SCHEDULE_TEAMS.indexOf(e.ws)<0)throw new Error('구분 값이 올바르지 않습니다.');
+    if(!start)throw new Error('휴가 시작일이 올바르지 않습니다.');
+    if(e.end&&!end)throw new Error('휴가 마감일이 올바르지 않습니다.');
+    if(end&&end<start)throw new Error('마감일은 시작일보다 빠를 수 없습니다.');
+    ids[id]=true;
+    return {id:id,ws:e.ws,name:name,leave:leave,start:start,end:end};
+  });
+}
+// 전체 목록을 덮어쓴다. 바뀌지 않은 행은 기존 수정자·수정시각을 유지한다.
+function saveSchedulePayload(events,user){
+  const list=validateSchedule(events);
+  const lock=LockService.getScriptLock();
+  lock.waitLock(10000);
+  try{
+    const sheet=scheduleSheet(),last=sheet.getLastRow(),width=SCHEDULE_HEADERS.length;
+    const old={};
+    if(last>1)sheet.getRange(2,1,last-1,width).getDisplayValues().forEach(function(r){old[r[0]]=r;});
+    const at=kstTimestamp(),who=(user&&user.name)||'';
+    const rows=list.map(function(e){
+      const o=old[e.id],same=o&&o[1]===e.ws&&o[2]===e.name&&o[3]===e.leave&&scheduleDate(o[4])===e.start&&scheduleDate(o[5])===e.end;
+      return [e.id,e.ws,e.name,e.leave,e.start,e.end,same?o[6]:who,same?o[7]:at];
+    });
+    if(last>1)sheet.getRange(2,1,last-1,width).clearContent();
+    if(rows.length){
+      const range=sheet.getRange(2,1,rows.length,width);
+      range.setNumberFormat('@'); // 날짜·이름을 항상 글자로 저장(수식·자동 날짜 변환 방지)
+      range.setValues(rows);
+    }
+    SpreadsheetApp.flush();
+    return {ok:true,count:rows.length,updatedAt:kstIsoTimestamp()};
+  }finally{lock.releaseLock();}
 }
 
 function jsonResponse(payload) {
