@@ -33,6 +33,7 @@ function normalize(row){
   values[3]=values[3]==='진행'?'진행중':['이월','취소'].includes(values[3])?'보류':values[3];
   return values;
 }
+function normalizeServerTask(row,id){const values=normalize(row);values[13]=String(id||row[13]||values[13]||'');return values}
 const HOSTED_APP_URL='https://the51dt.github.io/team-workspace/';
 function isHostedApp(){try{return ['http:','https:'].includes(new URL(window.location.href||window.location.origin).protocol);}catch{return false;}}
 function clearLegacyDataCache(){
@@ -134,7 +135,7 @@ async function load(){
       result=await requestServer({action:'load'});
     }
     if(!Array.isArray(result.tasks))throw new Error('load 응답에 tasks가 없습니다. 제공하신 Apps Script 코드를 새 버전으로 배포해 주세요.');
-    const rows=result.tasks.map(normalize);
+    const rows=result.tasks.map((row,index)=>normalizeServerTask(row,result.taskIds?.[index]));
     if(version!==loadVersion)return;
     data=rows;baseData=rows.map(row=>row.slice());newRows.clear();edits={};deleteMode=false;
     $('#deleteToggle').textContent='삭제';
@@ -172,9 +173,9 @@ async function saveAll(){
       $('#saveStatus').textContent='● '+ledgerMonth+' 전체 업무대장 저장 중…';
       await requestServer({action:'backupLedger',month:ledgerMonth,headers:snapshot.headers,rows:snapshot.rows});
     }
-    const result=await requestServer({action:'save',tasks,baseTasks:baseData});
+    const result=await requestServer({action:'save',tasks:tasks.map(row=>row.slice(0,13)),taskIds:tasks.map(row=>row[13]||''),baseTasks:baseData.map(row=>row.slice(0,13)),baseTaskIds:baseData.map(row=>row[13]||'')});
     pendingLedgerMonths.delete(currentWorkspace);
-    data=(Array.isArray(result.tasks)?result.tasks:tasks).map(normalize);baseData=data.map(row=>row.slice());newRows.clear();edits={};
+    data=Array.isArray(result.tasks)?result.tasks.map((row,index)=>normalizeServerTask(row,result.taskIds?.[index])):tasks.map(normalize);baseData=data.map(row=>row.slice());newRows.clear();edits={};
     $('#saveStatus').textContent='● Apps Script 저장 완료';
     render();return true;
   }catch(error){const reason=error.name==='TimeoutError'?'서버 응답 시간이 초과되었습니다. 입력 내용은 유지되어 있습니다.':error.message;$('#saveStatus').textContent='● 저장 실패: '+reason;alert('저장 실패: '+reason);return false}

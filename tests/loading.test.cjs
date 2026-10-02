@@ -51,10 +51,10 @@ test('load uses Apps Script tasks and maps nine columns without losing work hour
   assert.equal(page.requests[0].payload.action,'load');assert.equal(page.run('data[0][9]'),'1.5');
   assert.match(page.element('#rows').innerHTML,/업무 제목/);assert.equal(page.run('serverConnected'),true);
 });
-test('save upgrades legacy tasks to thirteen fields plus a stable task id',async()=>{
+test('save sends thirteen visible fields while task ids travel separately',async()=>{
   let tasks=[task];const page=app(p=>{if(p.action==='save'){tasks=p.tasks;return {ok:true,updatedAt:'saved'}}return {ok:true,tasks}});await page.ready;
   page.run("remember(0,5,'수정 업무')");await page.run('saveAll()');
-  assert.equal(tasks[0][5],'수정 업무');assert.equal(tasks[0].length,14);
+  assert.equal(tasks[0][5],'수정 업무');assert.equal(tasks[0].length,13);
   assert.equal(page.requests[1].headers['Content-Type'],'text/plain;charset=utf-8');
   await page.run('load()');assert.equal(page.run('data[0][5]'),'수정 업무');
 });
@@ -398,7 +398,7 @@ test('enterprise STG date persists separately and every workspace has planning/p
  assert.match(page.element('#rows').innerHTML,/aria-label="STG 반영일"/);
  assert.doesNotMatch(page.element('#rows').innerHTML,/aria-label="조정"/);
  page.run("remember(0,11,'2026-09-25');remember(0,12,'기획')");await page.run('saveAll()');await page.run('load()');
- assert.equal(stores.enterprise[0].length,14);assert.equal(page.run('data[0][11]'),'2026-09-25');assert.equal(page.run('data[0][12]'),'기획');assert.equal(page.run('data[0][4]'),'2026-09-20');
+ assert.equal(stores.enterprise[0].length,13);assert.equal(page.run('data[0][11]'),'2026-09-25');assert.equal(page.run('data[0][12]'),'기획');assert.equal(page.run('data[0][4]'),'2026-09-20');
  await page.run("switchWorkspace('aldot')");assert.doesNotMatch(page.element('#rows').innerHTML,/STG 반영일|aria-label="조정"/);assert.match(page.element('#rows').innerHTML,/work-type-select/);
  page.run("remember(0,12,'퍼블')");await page.run('saveAll()');assert.equal(stores.aldot[0][12],'퍼블');
 });
