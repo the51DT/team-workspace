@@ -24,11 +24,12 @@ let selectedMonth=viewMonthBounds().current;
 let currentTab='active',completionSort='';
 let data=[],baseData=[],newRows=new Set(),deleteMode=false,edits={};const $=s=>document.querySelector(s),$$=s=>[...document.querySelectorAll(s)],esc=v=>String(v??'').replace(/[&<>\"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','\"':'&quot;'}[c]));
 const nowText=()=>{let d=new Date(),p=n=>String(n).padStart(2,'0');return `${p(d.getFullYear()%100)}.${p(d.getMonth()+1)}.${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`};
+const rowId=()=>globalThis.crypto?.randomUUID?.()||'task-'+Date.now().toString(36)+'-'+Math.random().toString(36).slice(2);
 function normalize(row){
-  if(!Array.isArray(row)||![9,11,12,13].includes(row.length)||row.some(v=>v!==null&&!['string','number','boolean'].includes(typeof v)))throw new Error('업무 데이터는 9, 11, 12 또는 13개 열의 배열이어야 합니다.');
+  if(!Array.isArray(row)||![9,11,12,13,14].includes(row.length)||row.some(v=>v!==null&&!['string','number','boolean'].includes(typeof v)))throw new Error('업무 데이터는 9, 11, 12, 13 또는 14개 열의 배열이어야 합니다.');
   const values=row.map(v=>String(v??''));
   if(values.length===9)values.splice(7,0,'','');
-  while(values.length<13)values.push('');
+  while(values.length<14)values.push('');
   values[3]=values[3]==='진행'?'진행중':['이월','취소'].includes(values[3])?'보류':values[3];
   return values;
 }
@@ -163,7 +164,7 @@ async function saveAll(){
   saving=true;lockControls(true);$('#saveStatus').textContent='● 저장 중…';
   const orderedRows=[...data.filter((_,i)=>!newRows.has(i)),...data.filter((_,i)=>newRows.has(i))];
   const pendingRows=new Set([...newRows].map(i=>data[i]));
-  const tasks=orderedRows.map(row=>Array.from({length:13},(_,c)=>c===0&&pendingRows.has(row)?registrationLabel(row[0]):row[c]??''));
+  const tasks=orderedRows.map(row=>Array.from({length:14},(_,c)=>c===0&&pendingRows.has(row)?registrationLabel(row[0]):row[c]??''));
   try{
     const ledgerMonth=pendingLedgerMonths.get(currentWorkspace);
     if(ledgerMonth){
@@ -204,9 +205,10 @@ function copyPreviousMonth(targetMonth=selectedMonth){
   const clone=[...row];clone[9]='';clone[10]='';clone[7]=MONTH_META+JSON.stringify({id:meta.id,month:target});
   if(matches.length){
    const existing=matches[0],index=data.indexOf(existing);
+   clone[13]=existing[13]||rowId();
    data[index]=clone;if(drafts.has(existing)){drafts.delete(existing);drafts.add(clone);}
    matches.slice(1).forEach(duplicate=>duplicates.add(duplicate));
-  }else{data.push(clone);drafts.add(clone);}
+  }else{clone[13]=rowId();data.push(clone);drafts.add(clone);}
   count++;
  });
  data=data.filter(row=>!duplicates.has(row));
@@ -289,7 +291,7 @@ function render(){document.querySelectorAll('[data-enterprise-column]').forEach(
 function remember(r,c,v){data[r][c]=v;$('#saveStatus').textContent='● 변경사항 있음 · 저장 버튼을 눌러 주세요';if(!newRows.has(r)){edits[`${r}:${c}`]=v;}}
 function editableText(element){const text=element.innerText??element.textContent;return +element.dataset.col===6?text:text.trim()}
 function bind(){$$(".number-input").forEach((x)=>(x.oninput=()=>{const row=+x.dataset.row,col=+x.dataset.col;remember(row,col,x.value);if(currentWorkspace==='cx'&&col===9){const value=syncAdjustment(data[row]),adjustment=$(`[data-row="${row}"][data-col="10"]`);if(adjustment)adjustment.value=value;}else if(currentWorkspace==='cx'&&col===10){const value=syncWorkHours(data[row]),hours=$(`[data-row="${row}"][data-col="9"]`);if(hours)hours.value=value;}renderWorkSummary(selected());}));$$(".rms-input").forEach((x)=>(x.onchange=()=>{remember(+x.dataset.row,1,x.value.trim());render();}));$$(".date-input").forEach((x)=>{x.onfocus=()=>{if(x.type==='text'){x.type='date';try{x.showPicker?.()}catch{}}};x.onblur=()=>{if(!x.value)x.type='text'};x.onchange=()=>remember(+x.dataset.row,+(x.dataset.col||4),x.value)});$$("#rows [contenteditable]").forEach((x)=>{x.oninput=()=>remember(+x.dataset.row,+x.dataset.col,editableText(x));x.onkeydown=(e)=>{if(e.key==="Enter"&&!e.isComposing&&+x.dataset.col!==6){e.preventDefault();x.blur();}};x.onfocus=()=>(x.dataset.old=editableText(x));x.onblur=()=>{let v=editableText(x),r=+x.dataset.row,c=+x.dataset.col;if(v!==x.dataset.old){remember(r,c,v);x.classList.add("saved");setTimeout(()=>x.classList.remove("saved"),700);}};});$$(".cell-select").forEach((x)=>(x.onchange=()=>{let r=+x.dataset.row,c=+x.dataset.col,v=x.value;remember(r,c,v);if(c===3&&v==="진행중"&&!data[r][7])remember(r,7,nowText());if(c===3&&v==="완료")remember(r,8,nowText());render();}));}
-function addRow(){let d=new Date(),day=d.getFullYear()===selectedMonth.getFullYear()&&d.getMonth()===selectedMonth.getMonth()?d.getDate():1;data.push([`${selectedMonth.getFullYear()}-${String(selectedMonth.getMonth()+1).padStart(2,'0')}-${String(day).padStart(2,'0')}`,'','','배정','','','','','','','','','']);newRows.add(data.length-1);deleteMode=false;$('#saveStatus').textContent='● 새 업무 저장 필요';$('#search').value='';$('#worker').value='all';$('#workTypeFilter').value='all';$('#status').value='all';render();requestAnimationFrame(()=>$('#rows tr:first-child .worker-select')?.focus())}
+function addRow(){let d=new Date(),day=d.getFullYear()===selectedMonth.getFullYear()&&d.getMonth()===selectedMonth.getMonth()?d.getDate():1;data.push([`${selectedMonth.getFullYear()}-${String(selectedMonth.getMonth()+1).padStart(2,'0')}-${String(day).padStart(2,'0')}`,'','','배정','','','','','','','','','',rowId()]);newRows.add(data.length-1);deleteMode=false;$('#saveStatus').textContent='● 새 업무 저장 필요';$('#search').value='';$('#worker').value='all';$('#workTypeFilter').value='all';$('#status').value='all';render();requestAnimationFrame(()=>$('#rows tr:first-child .worker-select')?.focus())}
 function registrationLabel(value){
  const match=String(value??'').trim().match(/^(?:\d{2,4}[.\/-])?(\d{1,2})[.\/-](\d{1,2})$/);
  return match?Number(match[1])+'/'+Number(match[2]):String(value??'');

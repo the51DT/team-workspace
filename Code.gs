@@ -67,9 +67,18 @@ function loadPayload(workspace) {
     const lock=LockService.getScriptLock();lock.waitLock(10000);
     try{sheet=getDataSheet(workspace);}finally{lock.releaseLock();}
   }
-  const values=sheet.getRange('A2:B2').getValues()[0];
-  const tasks=values[0]?JSON.parse(values[0]):[];
+  let values=sheet.getRange('A2:B2').getValues()[0];
+  let tasks=values[0]?JSON.parse(values[0]):[];
   validateTasks(tasks);
+  if(tasks.some(row=>row.length<14||!String(row[13]||'').trim())){
+    const lock=LockService.getScriptLock();lock.waitLock(10000);
+    try{
+      values=sheet.getRange('A2:B2').getValues()[0];tasks=values[0]?JSON.parse(values[0]):[];validateTasks(tasks);
+      tasks=tasks.map(canonicalTask);ensureTaskIds(tasks);
+      const json=JSON.stringify(tasks);if(json.length>50000)throw new Error('업무 고유 ID를 추가하면 저장 한도를 초과합니다. 오래된 업무를 이월 백업한 뒤 정리해 주세요.');
+      sheet.getRange(2,1,1,1).setValues([[json]]);SpreadsheetApp.flush();
+    }finally{lock.releaseLock();}
+  }
   return {ok:true,workspace:workspace,tasks:tasks,workers:loadWorkers(workspace),updatedAt:values[1]||''};
 }
 
@@ -111,15 +120,15 @@ function getWorkerSheet(workspace, createIfMissing) {
   return sheet;
 }
 
-// 13열: 기존 12개 열 + 기획/퍼블 구분. 이전 9·11·12열 데이터도 조회합니다.
+// 14열: 화면 열 13개 + 동시 편집 병합용 업무 ID. 이전 9·11·12·13열 데이터도 조회합니다.
 function validateTasks(tasks) {
   if (!Array.isArray(tasks) || tasks.some(function (row) {
-    return !Array.isArray(row) || [9,11,12,13].indexOf(row.length) === -1 ||
+    return !Array.isArray(row) || [9,11,12,13,14].indexOf(row.length) === -1 ||
       row.some(function (value) {
         return value !== null && ['string', 'number', 'boolean'].indexOf(typeof value) === -1;
       });
   })) {
-    throw new Error('업무 데이터는 9, 11, 12 또는 13개 열의 배열이어야 합니다.');
+    throw new Error('업무 데이터는 9, 11, 12, 13 또는 14개 열의 배열이어야 합니다.');
   }
 }
 
@@ -144,11 +153,22 @@ function backupLedgerPayload(headers,rows,workspace,month) {
     return {ok:true,workspace:workspace,sheet:name,rowCount:rows.length,backedUpAt:kstTimestamp()};
   }finally{lock.releaseLock();}
 }
-function canonicalTask(row){const values=row.map(value=>value===null?'':value);if(values.length===9)values.splice(7,0,'','');while(values.length<13)values.push('');return values;}
+function canonicalTask(row){const values=row.map(value=>value===null?'':value);if(values.length===9)values.splice(7,0,'','');while(values.length<14)values.push('');return values;}
+function ensureTaskIds(tasks){const used=new Set();tasks.forEach(row=>{let id=String(row[13]||'').trim();if(!id||used.has(id))id=Utilities.getUuid();row[13]=id;used.add(id);});return tasks;}
 function mergeTaskChanges(current,base,desired){
- if(!Array.isArray(base))return desired;
- validateTasks(base);
- current=current.map(canonicalTask);base=base.map(canonicalTask);desired=desired.map(canonicalTask);
+ if(!Array.isArray(base))return ensureTaskIds(desired.map(canonicalTask));
+ validateTasks(base);current=current.map(canonicalTask);base=base.map(canonicalTask);desired=desired.map(canonicalTask);
+ const identified=base.every(row=>String(row[13]||''))&&current.every(row=>String(row[13]||''));
+ if(identified){
+  ensureTaskIds(current);const baseById=new Map(base.map(row=>[String(row[13]),row])),desiredIds=new Set(desired.map(row=>String(row[13]||'')).filter(Boolean));
+  const merged=current.filter(row=>!baseById.has(String(row[13]))||desiredIds.has(String(row[13]))),currentById=new Map(merged.map(row=>[String(row[13]),row]));
+  desired.forEach(row=>{
+   const id=String(row[13]||''),before=baseById.get(id),target=currentById.get(id);
+   if(before&&target){for(let column=0;column<13;column++)if(String(row[column]??'')!==String(before[column]??''))target[column]=row[column]??'';}
+   else if(!before){if(!id||currentById.has(id))row[13]=Utilities.getUuid();merged.push(row);currentById.set(String(row[13]),row);}
+  });
+  return ensureTaskIds(merged);
+ }
  // Existing rows keep server-side changes; only cells changed from this client's baseline are applied.
  const merged=current.map(row=>row.slice()),shared=Math.min(base.length,desired.length);
  for(let row=0;row<shared;row++){
@@ -159,7 +179,7 @@ function mergeTaskChanges(current,base,desired){
  if(desired.length>base.length)merged.push(...desired.slice(base.length).map(row=>row.slice()));
  // Row deletion still follows the submitted list; ordinary cell edits use the merge path above.
  if(desired.length<base.length)return desired;
- return merged;
+ return ensureTaskIds(merged);
 }
 function savePayload(tasks, workspace, user, baseTasks) {
   workspace=workspaceKey(workspace);
@@ -406,7 +426,7 @@ function logoutPayload(token){const sh=sessionSheet();if(sh.getLastRow()>1){cons
 function requireRole(u,a){if(a.indexOf(u.role)<0)throw new Error('이 작업을 수행할 권한이 없습니다.');}
 function listUsers(){const sh=authSheet();if(sh.getLastRow()<2)return [];return sh.getRange(2,1,sh.getLastRow()-1,7).getValues().map(r=>({username:String(r[0]),name:String(r[1]),role:String(r[2]),active:r[5]===true||String(r[5]).toLowerCase()==='true',createdAt:String(r[6]||'')})).filter(u=>ROLES.indexOf(u.role)>=0);}
 const AUDIT_FIELDS=['등록','RMS','작업자','단계','운영 반영일','업무제목','비고','진행시각','완료시각','작업시간','조정','STG 반영일','기획/퍼블'];
-function appendAudit(ws,u,before,after,at){const rows=[],max=Math.max(before.length,after.length);for(let i=0;i<max;i++){const normalize=r=>{if(!r)return r;const v=[...r];if(v.length===9)v.splice(7,0,'','');while(v.length<13)v.push('');return v};const a=normalize(before[i]),b=normalize(after[i]),title=String((b||a||[])[5]||('업무 '+(i+1)));if(!a||!b){rows.push([at,u.username,u.name,u.role,ws,!a?'추가':'삭제',title,'전체',a?JSON.stringify(a):'',b?JSON.stringify(b):'']);continue;}for(let c=0;c<Math.max(a.length,b.length);c++){const x=String(a[c]??''),y=String(b[c]??'');if(x!==y)rows.push([at,u.username,u.name,u.role,ws,'수정',title,AUDIT_FIELDS[c]||('열 '+(c+1)),x,y]);}}if(rows.length){const sh=auditSheet();sh.getRange(sh.getLastRow()+1,1,rows.length,10).setValues(rows);}}
+function appendAudit(ws,u,before,after,at){const rows=[],max=Math.max(before.length,after.length);for(let i=0;i<max;i++){const normalize=r=>{if(!r)return r;const v=[...r];if(v.length===9)v.splice(7,0,'','');while(v.length<13)v.push('');return v};const a=normalize(before[i]),b=normalize(after[i]),title=String((b||a||[])[5]||('업무 '+(i+1)));if(!a||!b){rows.push([at,u.username,u.name,u.role,ws,!a?'추가':'삭제',title,'전체',a?JSON.stringify(a.slice(0,13)):'' ,b?JSON.stringify(b.slice(0,13)):'']);continue;}for(let c=0;c<13;c++){const x=String(a[c]??''),y=String(b[c]??'');if(x!==y)rows.push([at,u.username,u.name,u.role,ws,'수정',title,AUDIT_FIELDS[c]||('열 '+(c+1)),x,y]);}}if(rows.length){const sh=auditSheet();sh.getRange(sh.getLastRow()+1,1,rows.length,10).setValues(rows);}}
 function loadAuditPayload(ws,cursor){
  ws=workspaceKey(ws);const sh=auditSheet(),last=sh.getLastRow();
  let end=cursor===undefined||cursor===''?last:Number(cursor);

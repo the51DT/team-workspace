@@ -153,6 +153,23 @@ test('concurrent new rows are appended without removing another user addition',(
  const result=app.run('savePayload('+JSON.stringify(b)+",'cx',null,"+JSON.stringify(base)+')');
  assert.deepEqual(result.tasks.map(row=>row[5]),['기존 업무','추가 A','추가 B']);
 });
+
+test('stable task ids merge stale edits after another user deletes a different row',()=>{
+ const app=harness(),initial=[
+  ['9/24','','A','배정','','업무 A','','','','1','0','',''],
+  ['9/24','','B','배정','','업무 B','원래 비고','','','1','0','','']
+ ];
+ const baseline=app.run('savePayload('+JSON.stringify(initial)+",'cx').tasks");
+ assert.ok(baseline.every(row=>row.length===14&&row[13]));
+ const afterDelete=[baseline[1]];
+ app.run('savePayload('+JSON.stringify(afterDelete)+",'cx',null,"+JSON.stringify(baseline)+')');
+ const staleEdit=JSON.parse(JSON.stringify(baseline));staleEdit[1][6]='새 비고';
+ const result=app.run('savePayload('+JSON.stringify(staleEdit)+",'cx',null,"+JSON.stringify(baseline)+')');
+ assert.equal(result.tasks.length,1);
+ assert.equal(result.tasks[0][5],'업무 B');
+ assert.equal(result.tasks[0][6],'새 비고');
+ assert.equal(result.tasks[0][13],baseline[1][13]);
+});
 test('workspace ledger backup replaces the matching sheet with table data',()=>{
  const app=harness();
  const headers=['등록','RMS','작업자','단계','STG 반영일','운영 반영일','업무제목','비고','작업시간'];
