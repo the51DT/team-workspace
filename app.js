@@ -298,6 +298,7 @@ function updateWorkspaceHeader(){
 // 휴가 일정이 서버(별도 스프레드시트)를 부를 때 쓰는 통로. 로그인 만료 처리는 업무 조회와 같다.
 window.scheduleApi={
  canEdit:()=>Boolean(canEdit()),
+ userName:()=>currentUser?.name||'',
  async request(payload){
   try{
    const result=await requestServer(payload);
