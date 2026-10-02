@@ -159,7 +159,7 @@ test('stable task ids merge stale edits after another user deletes a different r
   ['9/24','','A','배정','','업무 A','','','','1','0','',''],
   ['9/24','','B','배정','','업무 B','원래 비고','','','1','0','','']
  ];
- const baseline=app.run('savePayload('+JSON.stringify(initial)+",'cx').tasks");
+ const saved=app.run('savePayload('+JSON.stringify(initial)+",'cx')"),baseline=saved.tasks.map((row,index)=>[...row,saved.taskIds[index]]);
  assert.ok(baseline.every(row=>row.length===14&&row[13]));
  const afterDelete=[baseline[1]];
  app.run('savePayload('+JSON.stringify(afterDelete)+",'cx',null,"+JSON.stringify(baseline)+')');
@@ -168,7 +168,7 @@ test('stable task ids merge stale edits after another user deletes a different r
  assert.equal(result.tasks.length,1);
  assert.equal(result.tasks[0][5],'업무 B');
  assert.equal(result.tasks[0][6],'새 비고');
- assert.equal(result.tasks[0][13],baseline[1][13]);
+ assert.equal(result.taskIds[0],baseline[1][13]);
 });
 test('workspace ledger backup replaces the matching sheet with table data',()=>{
  const app=harness();

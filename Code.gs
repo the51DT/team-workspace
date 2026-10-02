@@ -48,7 +48,7 @@ function doPost(e) {
     if(request.action==='logout')return jsonResponse(logoutPayload(request.token));
     if(request.action==='session')return jsonResponse({ok:true,user:publicUser(user)});
     if(request.action==='load'){const started=Date.now(),result=loadPayload(request.workspace);requestPhases.loadMs=Date.now()-started;return jsonResponse(Object.assign(result,{user:publicUser(user)}));}
-    if(request.action==='save'){requireRole(user,['admin','editor']);return jsonResponse(savePayload(request.tasks,request.workspace,user,request.baseTasks));}
+    if(request.action==='save'){requireRole(user,['admin','editor']);return jsonResponse(savePayload(withTaskIds(request.tasks,request.taskIds),request.workspace,user,withTaskIds(request.baseTasks,request.baseTaskIds)));}
     if(request.action==='backupLedger'){requireRole(user,['admin','editor']);return jsonResponse(backupLedgerPayload(request.headers,request.rows,request.workspace,request.month));}
     if(request.action==='loadSchedule')return jsonResponse(Object.assign(loadSchedulePayload(),{user:publicUser(user)}));
     if(request.action==='saveSchedule'){requireRole(user,['admin','editor']);return jsonResponse(saveSchedulePayload(request.events,user));}
@@ -79,7 +79,7 @@ function loadPayload(workspace) {
       sheet.getRange(2,1,1,1).setValues([[json]]);SpreadsheetApp.flush();
     }finally{lock.releaseLock();}
   }
-  return {ok:true,workspace:workspace,tasks:tasks,workers:loadWorkers(workspace),updatedAt:values[1]||''};
+  return {ok:true,workspace:workspace,tasks:tasks.map(row=>row.slice(0,13)),taskIds:tasks.map(row=>String(row[13]||'')),workers:loadWorkers(workspace),updatedAt:values[1]||''};
 }
 
 function loadWorkers(workspace) {
@@ -154,6 +154,7 @@ function backupLedgerPayload(headers,rows,workspace,month) {
   }finally{lock.releaseLock();}
 }
 function canonicalTask(row){const values=row.map(value=>value===null?'':value);if(values.length===9)values.splice(7,0,'','');while(values.length<14)values.push('');return values;}
+function withTaskIds(tasks,ids){if(!Array.isArray(tasks))return tasks;if(!Array.isArray(ids))return tasks;return tasks.map((row,index)=>{const values=row.slice(0,13);values[13]=String(ids[index]||row[13]||'');return values;});}
 function ensureTaskIds(tasks){const used=new Set();tasks.forEach(row=>{let id=String(row[13]||'').trim();if(!id||used.has(id))id=Utilities.getUuid();row[13]=id;used.add(id);});return tasks;}
 function mergeTaskChanges(current,base,desired){
  if(!Array.isArray(base))return ensureTaskIds(desired.map(canonicalTask));
@@ -196,7 +197,7 @@ function savePayload(tasks, workspace, user, baseTasks) {
     dataSheet.getRange('A2:B2').setValues([[json, updatedAt]]);
     if(user)appendAudit(workspace,user,previous,tasks,kstTimestamp());
     SpreadsheetApp.flush();
-    return { ok: true, workspace: workspace, tasks: tasks, updatedAt: updatedAt };
+    return {ok:true,workspace:workspace,tasks:tasks.map(row=>row.slice(0,13)),taskIds:tasks.map(row=>String(row[13]||'')),updatedAt:updatedAt};
   } finally {
     lock.releaseLock();
   }
