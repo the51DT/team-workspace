@@ -266,6 +266,7 @@ test('CX summary uses calculated adjustments while other workspaces show rounded
  const first=[...task];first[2]='작업자 A';first[7]='1.234';
  const second=[...task];second[2]='작업자 A';second[7]='2.5';
  const third=[...task];third[2]='작업자 B';third[7]='4';
+ first[8]=second[8]=third[8]='';
  const page=app(p=>({ok:true,workspace:p.workspace,tasks:[first,second,third]}));await page.ready;
  assert.match(page.element('#workSummary').innerHTML,/작업자 A/);
  assert.doesNotMatch(page.element('#workSummary').innerHTML,/summary-label|>작업시간</);
@@ -275,7 +276,13 @@ test('CX summary uses calculated adjustments while other workspaces show rounded
  assert.equal(page.run('data[0][10]'),'0.154');
  assert.equal(page.run('data[1][10]'),'0.313');
  assert.equal(page.run("calculatedAdjustment('9.6')"),'1.20');
- assert.match(page.element('#rows').innerHTML,/aria-label="조정"[^>]*>0\.154</);
+ assert.equal(page.run("calculatedWorkHours('1.25')"),'10');
+ assert.equal(page.run("calculatedWorkHours('0.154')"),'1.232');
+ assert.equal(page.run("let row=['','','','','','','','','','','1.5'];syncWorkHours(row);row[9]"),'12');
+ assert.match(page.element('#rows').innerHTML,/aria-label="조정"[^>]*value="0\.154"/);
+ assert.match(page.element('#rows').innerHTML,/aria-label="조정"[^>]*data-col="10"/);
+ page.run("remember(0,10,'1.25');renderWorkSummary(selected())");
+ assert.equal(page.run('data[0][10]'),'1.25');assert.match(page.element('#workSummary').innerHTML,/1\.563/);
  page.element('#worker').value='작업자 B';page.run('render()');
  assert.doesNotMatch(page.element('#workSummary').innerHTML,/작업자 A/);
  assert.match(page.element('#workSummary').innerHTML,/작업자 B/);
@@ -438,7 +445,7 @@ test('all stages except completed copy to the next month',async()=>{
  assert.equal(page.run('selected().length'),5);assert.equal(page.run('data.length'),15);
  assert.equal(page.run("selected().every(({r})=>r[0]==='2026-09-19'&&r[6]==='비고'&&r[9]===''&&r[10]==='')"),true);
  page.run("selectTab('list');changeMonth(-1)");assert.equal(page.run('selected().length'),8);
- assert.equal(page.run("selected().every(({r})=>r[9]==='2'&&r[10]==='0.25')"),true);
+ assert.equal(page.run("selected().every(({r})=>r[9]==='2'&&r[10]==='1')"),true);
  await page.run('carryOver()');assert.equal(await page.run('data.length'),15);
 });
 
