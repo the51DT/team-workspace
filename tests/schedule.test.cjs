@@ -52,7 +52,7 @@ test('dates edited in the sheet are normalized on load',()=>{
 });
 
 test('missing spreadsheet id gives a clear error',()=>{
- const app=harness();
+ const app=harness({scheduleId:''});
  assert.throws(()=>app.run('loadSchedulePayload()'),/SCHEDULE_SPREADSHEET_ID/);
 });
 

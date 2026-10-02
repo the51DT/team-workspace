@@ -41,6 +41,11 @@ function harness(options={}){
  let source=fs.readFileSync(require('node:path').join(__dirname,'../Code.gs'),'utf8');
  // 실제 스프레드시트 ID 가 Code.gs 에 들어 있어도 테스트는 그 값에 기대지 않는다: 항상 테스트 값(또는 빈 값)으로 바꿔서 실행
  source=source.replace(/SCHEDULE_SPREADSHEET_ID='[^']*'/,"SCHEDULE_SPREADSHEET_ID='"+(options.scheduleId||'')+"'");
+ if(Object.hasOwn(options,'scheduleId')){
+  const declaration=/const\s+SCHEDULE_SPREADSHEET_ID\s*=\s*(?:'[^']*'|"[^"]*")\s*;/;
+  if(!declaration.test(source))throw new Error('Schedule spreadsheet declaration was not found');
+  source=source.replace(declaration,()=> 'const SCHEDULE_SPREADSHEET_ID='+JSON.stringify(options.scheduleId)+';');
+ }
  vm.runInContext(source,context);
  return {run:code=>vm.runInContext(code,context),sheets,cache,backupSheets,scheduleSheets};
 }
