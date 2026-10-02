@@ -176,7 +176,7 @@
   function calDialog(c, presetDate, position) {
     if (!canEdit()) { toast(loaded ? '수정 권한이 없습니다' : '일정을 불러온 뒤 수정할 수 있습니다'); return; }
     const isNew = !c;
-    c = c || { name: '', ws: calTab === 'all' ? 'ALL' : calTab, leave: '연차', start: presetDate || '', end: '' };
+    c = c || { name: (api() && api().userName()) || '', ws: calTab === 'all' ? 'ALL' : calTab, leave: '연차', start: presetDate || '', end: '' };
     openDialog(isNew ? '휴가 일정 추가' : '휴가 일정 수정', `
       <div class="f"><label for="schF_ws">구분</label><select id="schF_ws">${Object.entries(TEAMS).map(([k, v]) => `<option value="${k}" ${k === c.ws ? 'selected' : ''}>${v}</option>`).join('')}</select></div>
       <div class="f"><label for="schF_name">이름</label><input type="text" id="schF_name" value="${esc(c.name)}" placeholder="이름"></div>
