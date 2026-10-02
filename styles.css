@@ -169,6 +169,36 @@ select {
   background: #f8faf7;
   border-bottom: 1px solid var(--line);
 }
+.work-summary.cx-summary {
+  display: flex;
+  flex-wrap: nowrap;
+  gap: 8px;
+  overflow-x: auto;
+}
+.work-summary.cx-summary .summary-work-card {
+  flex: 1 0 120px;
+  padding: 14px 12px;
+}
+.cx-working-day-guide {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  padding: 12px 20px;
+  color: #315446;
+  background: #eff8f2;
+  border-bottom: 1px solid var(--line);
+  font-size: 12px;
+}
+.cx-working-day-guide[hidden] {
+  display: none;
+}
+.cx-working-day-guide strong {
+  color: var(--g);
+  font-size: 14px;
+}
+.cx-working-day-guide small {
+  color: var(--muted);
+}
 .summary-work-card {
   min-width: 0;
   padding: 16px 18px;

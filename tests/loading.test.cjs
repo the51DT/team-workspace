@@ -299,6 +299,29 @@ test('planning and publishing filter narrows both table rows and summaries',asyn
  page.element('#workTypeFilter').value='퍼블';page.run('render()');
  assert.equal(page.run('selected().length'),1);assert.match(page.element('#workSummary').innerHTML,/퍼블리셔/);
 });
+test('CX keeps seven worker summaries together and shows the working-day target only in CX',async()=>{
+ const tasks=Array.from({length:7},(_,i)=>['2026-09-19','',`작업자 ${i+1}`,'배정','','업무 '+i,'','8','']);
+ const page=app(p=>({ok:true,workspace:p.workspace,tasks}));await page.ready;
+ assert.equal((page.element('#workSummary').innerHTML.match(/summary-work-card/g)||[]).length,7);
+ page.run("window.koreanHolidayName=ds=>({'2026-10-05':'대체공휴일','2026-10-09':'한글날'}[ds]||'');selectedMonth=new Date(2026,9,1);render()");
+ assert.equal(page.run("networkDays('2026-10-01','2026-10-02')"),2);
+ assert.equal(page.run("networkDays('2026-10-06','2026-10-08')"),3);
+ assert.deepEqual(JSON.parse(JSON.stringify(page.run("cxWritingSchedule(2026,9).map(x=>[x.from,x.date,x.days,x.value])"))),[
+  ['2026-10-01','2026-10-02',2,1.8],['2026-10-06','2026-10-08',3,2.7],['2026-10-12','2026-10-16',5,4.5],
+  ['2026-10-19','2026-10-20',2,1.8],['2026-10-21','2026-10-23',3,2.7],['2026-10-26','2026-10-30',5,4.5]
+ ]);
+ page.run("renderCxWorkingDayGuide(new Date('2026-10-02T12:00:00+09:00'))");
+ assert.match(page.element('#cxWorkingDayGuide').innerHTML,/10\/2 작성/);
+ assert.match(page.element('#cxWorkingDayGuide').innerHTML,/10\/1~10\/2/);
+ assert.match(page.element('#cxWorkingDayGuide').innerHTML,/2 × 0\.9 = 1\.8/);
+ assert.doesNotMatch(page.element('#cxWorkingDayGuide').innerHTML,/오늘|필요량|근로일|점검|10\/0/);
+ page.run("renderCxWorkingDayGuide(new Date('2026-10-14T12:00:00+09:00'))");
+ assert.match(page.element('#cxWorkingDayGuide').innerHTML,/10\/12~10\/16[\s\S]*5 × 0\.9 = 4\.5/);
+ page.run("window.koreanHolidayName=ds=>ds==='2026-12-20'?'휴일':''");
+ assert.equal(page.run("cxWritingSchedule(2026,11).some(x=>x.date==='2026-12-15'&&x.labels.includes('20일 마감'))"),true);
+ await page.run("switchWorkspace('enterprise')");
+ assert.equal(page.element('#cxWorkingDayGuide').hidden,true);
+});
 test('save commits focused edit and storage cleanup failure does not report remote save failure',async()=>{
  let saved;const page=app(p=>{if(p.action==='save'){saved=p.tasks;return {ok:true}}return {ok:true,tasks:[task]}});await page.ready;
  page.run("document.activeElement={blur(){remember(0,5,'입력 중인 제목')}};localStorage.removeItem=()=>{throw new Error('storage blocked')}");

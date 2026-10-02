@@ -139,6 +139,7 @@
     if (!holidayCache.has(y)) holidayCache.set(y, holidaysOf(y));
     return holidayCache.get(y).get(ds) || '';
   }
+  window.koreanHolidayName = holidayName;
 
   // ================== 캘린더 & 리스트 ==================
   let calYM = todayStr().slice(0, 7);
