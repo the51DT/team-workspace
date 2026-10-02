@@ -48,7 +48,7 @@ function doPost(e) {
     if(request.action==='logout')return jsonResponse(logoutPayload(request.token));
     if(request.action==='session')return jsonResponse({ok:true,user:publicUser(user)});
     if(request.action==='load'){const started=Date.now(),result=loadPayload(request.workspace);requestPhases.loadMs=Date.now()-started;return jsonResponse(Object.assign(result,{user:publicUser(user)}));}
-    if(request.action==='save'){requireRole(user,['admin','editor']);return jsonResponse(savePayload(request.tasks,request.workspace,user));}
+    if(request.action==='save'){requireRole(user,['admin','editor']);return jsonResponse(savePayload(request.tasks,request.workspace,user,request.baseTasks));}
     if(request.action==='backupLedger'){requireRole(user,['admin','editor']);return jsonResponse(backupLedgerPayload(request.headers,request.rows,request.workspace,request.month));}
     if(request.action==='loadSchedule')return jsonResponse(Object.assign(loadSchedulePayload(),{user:publicUser(user)}));
     if(request.action==='saveSchedule'){requireRole(user,['admin','editor']);return jsonResponse(saveSchedulePayload(request.events,user));}
@@ -144,23 +144,39 @@ function backupLedgerPayload(headers,rows,workspace,month) {
     return {ok:true,workspace:workspace,sheet:name,rowCount:rows.length,backedUpAt:kstTimestamp()};
   }finally{lock.releaseLock();}
 }
-function savePayload(tasks, workspace, user) {
+function canonicalTask(row){const values=row.map(value=>value===null?'':value);if(values.length===9)values.splice(7,0,'','');while(values.length<13)values.push('');return values;}
+function mergeTaskChanges(current,base,desired){
+ if(!Array.isArray(base))return desired;
+ validateTasks(base);
+ current=current.map(canonicalTask);base=base.map(canonicalTask);desired=desired.map(canonicalTask);
+ // Existing rows keep server-side changes; only cells changed from this client's baseline are applied.
+ const merged=current.map(row=>row.slice()),shared=Math.min(base.length,desired.length);
+ for(let row=0;row<shared;row++){
+  if(!merged[row])merged[row]=base[row].slice();
+  for(let column=0;column<13;column++)if(String(desired[row][column]??'')!==String(base[row][column]??''))merged[row][column]=desired[row][column]??'';
+ }
+ // New rows are appended, so additions from other users are retained.
+ if(desired.length>base.length)merged.push(...desired.slice(base.length).map(row=>row.slice()));
+ // Row deletion still follows the submitted list; ordinary cell edits use the merge path above.
+ if(desired.length<base.length)return desired;
+ return merged;
+}
+function savePayload(tasks, workspace, user, baseTasks) {
   workspace=workspaceKey(workspace);
   validateTasks(tasks);
-  const json = JSON.stringify(tasks);
-  if (json.length > 50000) {
-    throw new Error('업무 데이터가 한 셀의 저장 한도(50,000자)를 초과했습니다.');
-  }
   const lock = LockService.getScriptLock();
   lock.waitLock(10000);
   try {
     const updatedAt = kstIsoTimestamp();
     const dataSheet=getDataSheet(workspace),old=dataSheet.getRange('A2:B2').getValues()[0];
     const previous=old[0]?JSON.parse(old[0]):[];
+    tasks=mergeTaskChanges(previous,baseTasks,tasks);
+    const json=JSON.stringify(tasks);
+    if(json.length>50000)throw new Error('업무 데이터가 한 셀의 저장 한도(50,000자)를 초과했습니다.');
     dataSheet.getRange('A2:B2').setValues([[json, updatedAt]]);
     if(user)appendAudit(workspace,user,previous,tasks,kstTimestamp());
     SpreadsheetApp.flush();
-    return { ok: true, workspace: workspace, updatedAt: updatedAt };
+    return { ok: true, workspace: workspace, tasks: tasks, updatedAt: updatedAt };
   } finally {
     lock.releaseLock();
   }

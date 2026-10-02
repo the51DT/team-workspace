@@ -22,7 +22,7 @@ function viewMonthBounds(now=Date.now()){
 function isViewMonth(month){const bounds=viewMonthBounds();return month>=bounds.first&&month<=bounds.last;}
 let selectedMonth=viewMonthBounds().current;
 let currentTab='active',completionSort='';
-let data=[],newRows=new Set(),deleteMode=false,edits={};const $=s=>document.querySelector(s),$$=s=>[...document.querySelectorAll(s)],esc=v=>String(v??'').replace(/[&<>\"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','\"':'&quot;'}[c]));
+let data=[],baseData=[],newRows=new Set(),deleteMode=false,edits={};const $=s=>document.querySelector(s),$$=s=>[...document.querySelectorAll(s)],esc=v=>String(v??'').replace(/[&<>\"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','\"':'&quot;'}[c]));
 const nowText=()=>{let d=new Date(),p=n=>String(n).padStart(2,'0');return `${p(d.getFullYear()%100)}.${p(d.getMonth()+1)}.${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`};
 function normalize(row){
   if(!Array.isArray(row)||![9,11,12,13].includes(row.length)||row.some(v=>v!==null&&!['string','number','boolean'].includes(typeof v)))throw new Error('업무 데이터는 9, 11, 12 또는 13개 열의 배열이어야 합니다.');
@@ -135,7 +135,7 @@ async function load(){
     if(!Array.isArray(result.tasks))throw new Error('load 응답에 tasks가 없습니다. 제공하신 Apps Script 코드를 새 버전으로 배포해 주세요.');
     const rows=result.tasks.map(normalize);
     if(version!==loadVersion)return;
-    data=rows;newRows.clear();edits={};deleteMode=false;
+    data=rows;baseData=rows.map(row=>row.slice());newRows.clear();edits={};deleteMode=false;
     $('#deleteToggle').textContent='삭제';
     workers=[...new Set([...(Array.isArray(result.workers)?result.workers:[]),...data.map(r=>r[2])].filter(Boolean))];
     serverConnected=true;if(result.user){currentUser=result.user;restoringAuth=false;storeAuthUser(currentUser);}filters();applyPermissions(false);render();
@@ -171,9 +171,9 @@ async function saveAll(){
       $('#saveStatus').textContent='● '+ledgerMonth+' 전체 업무대장 저장 중…';
       await requestServer({action:'backupLedger',month:ledgerMonth,headers:snapshot.headers,rows:snapshot.rows});
     }
-    const result=await requestServer({action:'save',tasks});
+    const result=await requestServer({action:'save',tasks,baseTasks:baseData});
     pendingLedgerMonths.delete(currentWorkspace);
-    data=orderedRows.map((row,i)=>[tasks[i][0],...row.slice(1)]);newRows.clear();edits={};
+    data=(Array.isArray(result.tasks)?result.tasks:tasks).map(normalize);baseData=data.map(row=>row.slice());newRows.clear();edits={};
     $('#saveStatus').textContent='● Apps Script 저장 완료';
     render();return true;
   }catch(error){const reason=error.name==='TimeoutError'?'서버 응답 시간이 초과되었습니다. 입력 내용은 유지되어 있습니다.':error.message;$('#saveStatus').textContent='● 저장 실패: '+reason;alert('저장 실패: '+reason);return false}
@@ -350,7 +350,7 @@ async function switchWorkspace(key){
  if(key==='schedule'){if(saving)return;showWorkspacePage(key);updateWorkspaceHeader();return;}
  if(saving||!Object.hasOwn(workspaceNames,key))return;
  if(previewMode){
-  currentWorkspace=key;data=[];workers=[];newRows=new Set();edits={};serverConnected=false;
+  currentWorkspace=key;data=[];baseData=[];workers=[];newRows=new Set();edits={};serverConnected=false;
   showWorkspacePage(key);$('#search').value='';filters();updateMonth();updateWorkspaceHeader();selectTab('active');
   $('#saveStatus').textContent='● 화면 미리보기 · 서버 데이터는 불러오지 않습니다';
   $('#workspacePage').classList.toggle('read-only',true);
@@ -361,11 +361,11 @@ async function switchWorkspace(key){
  showWorkspacePage(key);
  if(key===currentWorkspace){updateWorkspaceHeader();selectTab('active');if(!serverConnected)await load();return}
  document.activeElement?.blur?.();
- workspaceDrafts.set(currentWorkspace,{data,newRows,edits,workers,serverConnected,status:$('#saveStatus').textContent});
- currentWorkspace=key;data=[];newRows=new Set();edits={};serverConnected=false;
+ workspaceDrafts.set(currentWorkspace,{data,baseData,newRows,edits,workers,serverConnected,status:$('#saveStatus').textContent});
+ currentWorkspace=key;data=[];baseData=[];newRows=new Set();edits={};serverConnected=false;
  workers=[];
  const cached=workspaceDrafts.get(key);
- if(cached){({data,newRows,edits,workers,serverConnected}=cached)}
+ if(cached){({data,baseData,newRows,edits,workers,serverConnected}=cached)}
  $('#search').value='';filters();selectTab('active');
  updateWorkspaceHeader();
  if(cached&&serverConnected){$('#saveStatus').textContent=cached.status;$('#saveAll').disabled=Boolean(currentUser&&!canEdit())}
@@ -514,7 +514,7 @@ function readAuthToken(){
  if(token)persistAuthToken(token);
  return token;
 }
-function clearAuthSession(){for(const storage of [localStorage,sessionStorage]){try{storage.removeItem('workflow-auth-token');storage.removeItem(AUTH_USER_KEY);}catch{}}authToken='';currentUser=null;serverConnected=false;loadVersion++;loading=false;data=[];workers=[];edits={};newRows.clear();workspaceDrafts.clear();pendingLedgerMonths.clear();clearLegacyDataCache();$('#rows').innerHTML='';$('#workSummary').innerHTML='';historyEntries=[];$('#historyList').textContent='';}
+function clearAuthSession(){for(const storage of [localStorage,sessionStorage]){try{storage.removeItem('workflow-auth-token');storage.removeItem(AUTH_USER_KEY);}catch{}}authToken='';currentUser=null;serverConnected=false;loadVersion++;loading=false;data=[];baseData=[];workers=[];edits={};newRows.clear();workspaceDrafts.clear();pendingLedgerMonths.clear();clearLegacyDataCache();$('#rows').innerHTML='';$('#workSummary').innerHTML='';historyEntries=[];$('#historyList').textContent='';}
 async function initAuth(){
  authToken=readAuthToken();
  if(!authToken){openLogin();return;}

@@ -129,6 +129,30 @@ test('all edited fields in a single save produce separate audit entries',()=>{
  const app=harness();app.run("appendAudit('cx',{username:'editor',name:'편집자',role:'editor'},[['9/24','','A','배정','','업무','전','1','0']],[['9/24','','B','검수요청','2026-09-25','새 제목','후','2','0']],'2026-09-24')");
  assert.equal(app.run("loadAuditPayload('cx').entries.length"),6);
 });
+test('concurrent saves merge only cells changed from each client baseline',()=>{
+ const app=harness(),base=[['9/24','','담당자','배정','','원래 제목','원래 비고','','','1','0','','기획']];
+ app.run('savePayload('+JSON.stringify(base)+",'cx')");
+ const titleEdit=JSON.parse(JSON.stringify(base)),noteEdit=JSON.parse(JSON.stringify(base));
+ titleEdit[0][5]='사용자 A 제목';noteEdit[0][6]='사용자 B 비고';
+ app.run('savePayload('+JSON.stringify(titleEdit)+",'cx',null,"+JSON.stringify(base)+')');
+ const result=app.run('savePayload('+JSON.stringify(noteEdit)+",'cx',null,"+JSON.stringify(base)+')');
+ assert.equal(result.tasks[0][5],'사용자 A 제목');
+ assert.equal(result.tasks[0][6],'사용자 B 비고');
+ const sameCellEdit=JSON.parse(JSON.stringify(base));sameCellEdit[0][5]='사용자 C 제목';
+ const last=app.run('savePayload('+JSON.stringify(sameCellEdit)+",'cx',null,"+JSON.stringify(base)+')');
+ assert.equal(last.tasks[0][5],'사용자 C 제목');
+ assert.equal(last.tasks[0][6],'사용자 B 비고');
+});
+
+test('concurrent new rows are appended without removing another user addition',()=>{
+ const app=harness(),base=[['9/24','','담당자','배정','','기존 업무','','','','1','0','','']];
+ app.run('savePayload('+JSON.stringify(base)+",'cx')");
+ const a=[...base,["9/25","","A","배정","","추가 A","","","","1","0","",""]];
+ const b=[...base,["9/25","","B","배정","","추가 B","","","","1","0","",""]];
+ app.run('savePayload('+JSON.stringify(a)+",'cx',null,"+JSON.stringify(base)+')');
+ const result=app.run('savePayload('+JSON.stringify(b)+",'cx',null,"+JSON.stringify(base)+')');
+ assert.deepEqual(result.tasks.map(row=>row[5]),['기존 업무','추가 A','추가 B']);
+});
 test('workspace ledger backup replaces the matching sheet with table data',()=>{
  const app=harness();
  const headers=['등록','RMS','작업자','단계','STG 반영일','운영 반영일','업무제목','비고','작업시간'];
