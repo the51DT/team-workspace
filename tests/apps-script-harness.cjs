@@ -39,7 +39,11 @@ function harness(options={}){
  const Utilities={DigestAlgorithm:{SHA_256:'sha256'},Charset:{UTF_8:'utf8'},getUuid:()=>`uuid-${++id}`,computeDigest:(_algo,value)=>[...crypto.createHash('sha256').update(value).digest()],base64EncodeWebSafe:bytes=>Buffer.from(bytes).toString('base64url')};
  const context=vm.createContext({CacheService,SpreadsheetApp:{getActiveSpreadsheet:()=>book,openById:id=>{if(id==='schedule-test-id')return scheduleBook;if(id!=='1GE6qRt40qIQH_lol2XD7T9cTPBrrqPk2gDvZy2y-pz8')throw Error('wrong destination');return backupBook},flush(){}},LockService:{getScriptLock:()=>lock},Utilities,Date,JSON});
  let source=fs.readFileSync(require('node:path').join(__dirname,'../Code.gs'),'utf8');
- if(options.scheduleId)source=source.replace("SCHEDULE_SPREADSHEET_ID=''","SCHEDULE_SPREADSHEET_ID='"+options.scheduleId+"'");
+ if(Object.hasOwn(options,'scheduleId')){
+  const declaration=/const\s+SCHEDULE_SPREADSHEET_ID\s*=\s*(?:'[^']*'|"[^"]*")\s*;/;
+  if(!declaration.test(source))throw new Error('Schedule spreadsheet declaration was not found');
+  source=source.replace(declaration,()=> 'const SCHEDULE_SPREADSHEET_ID='+JSON.stringify(options.scheduleId)+';');
+ }
  vm.runInContext(source,context);
  return {run:code=>vm.runInContext(code,context),sheets,cache,backupSheets,scheduleSheets};
 }
